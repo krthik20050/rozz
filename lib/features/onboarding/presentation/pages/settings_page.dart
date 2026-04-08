@@ -32,7 +32,10 @@ class _SettingsPageState extends State<SettingsPage> {
           _apiKeyController.text = key;
         });
       }
-    } catch (_) {}
+    } catch (e) {
+      // Key not yet stored or keystore unavailable — proceed with empty field
+      debugPrint('SettingsPage: could not load API key: $e');
+    }
   }
 
   Future<void> _saveKey() async {
@@ -143,7 +146,7 @@ class _SettingsPageState extends State<SettingsPage> {
             _buildInfoCard(
               'ROZZ v1.0',
               'Your bank balance, finally understood. '
-              'HDFC bank SMS are parsed locally on-device. '
+              'HDFC bank SMS messages are parsed locally on-device. '
               'No data is shared with third parties.',
             ),
           ],
