@@ -1,6 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:rozz/core/security/secure_storage_service.dart';
+import 'package:rozz/core/services/supabase_service.dart';
 import 'package:rozz/core/theme/colors.dart';
+import 'package:rozz/features/mab/presentation/bloc/mab_bloc.dart';
+import 'package:rozz/features/sync/sync_service.dart';
+import 'package:rozz/features/transactions/presentation/bloc/transaction_bloc.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 class SettingsPage extends StatefulWidget {
@@ -12,15 +17,27 @@ class SettingsPage extends StatefulWidget {
 
 class _SettingsPageState extends State<SettingsPage> {
   final _secureStorage = SecureStorageService();
+
+  // Gemini
   final _apiKeyController = TextEditingController();
   bool _obscureText = true;
   bool _isSaving = false;
   bool _keyExists = false;
 
+  // Supabase
+  final _supabaseUrlController = TextEditingController();
+  final _supabaseKeyController = TextEditingController();
+  bool _obscureSupabaseKey = true;
+  bool _isSavingSupabase = false;
+  bool _supabaseConfigured = false;
+  bool _isSyncing = false;
+  String? _lastSyncAt;
+
   @override
   void initState() {
     super.initState();
     _loadCurrentKey();
+    _loadSupabaseConfig();
   }
 
   Future<void> _loadCurrentKey() async {
@@ -35,6 +52,25 @@ class _SettingsPageState extends State<SettingsPage> {
     } catch (e) {
       // Key not yet stored or keystore unavailable — proceed with empty field
       debugPrint('SettingsPage: could not load API key: $e');
+    }
+  }
+
+  Future<void> _loadSupabaseConfig() async {
+    try {
+      final url = await _secureStorage.readValue('SUPABASE_URL');
+      final key = await _secureStorage.readValue('SUPABASE_ANON_KEY');
+      final lastSync = await _secureStorage.readValue('LAST_SYNC_AT');
+      if (mounted) {
+        setState(() {
+          _supabaseConfigured =
+              url != null && url.isNotEmpty && key != null && key.isNotEmpty;
+          if (url != null) _supabaseUrlController.text = url;
+          if (key != null) _supabaseKeyController.text = key;
+          _lastSyncAt = lastSync;
+        });
+      }
+    } catch (e) {
+      debugPrint('SettingsPage: could not load Supabase config: $e');
     }
   }
 
@@ -63,6 +99,63 @@ class _SettingsPageState extends State<SettingsPage> {
     _showSnackbar('API key removed.');
   }
 
+  // ── Supabase ───────────────────────────────────────────────────────────────
+
+  Future<void> _saveSupabaseConfig() async {
+    final url = _supabaseUrlController.text.trim();
+    final key = _supabaseKeyController.text.trim();
+    if (url.isEmpty || key.isEmpty) {
+      _showSnackbar('URL and anon key are required.', isError: true);
+      return;
+    }
+    setState(() => _isSavingSupabase = true);
+    try {
+      await _secureStorage.writeValue('SUPABASE_URL', url);
+      await _secureStorage.writeValue('SUPABASE_ANON_KEY', key);
+      final ok = await SupabaseService().initialize(url, key);
+      if (ok) {
+        setState(() => _supabaseConfigured = true);
+        _showSnackbar('Supabase connected ✓');
+      } else {
+        _showSnackbar('Could not connect. Check URL/key.', isError: true);
+      }
+    } catch (e) {
+      _showSnackbar('Save failed: $e', isError: true);
+    } finally {
+      setState(() => _isSavingSupabase = false);
+    }
+  }
+
+  Future<void> _clearSupabaseConfig() async {
+    await _secureStorage.deleteValue('SUPABASE_URL');
+    await _secureStorage.deleteValue('SUPABASE_ANON_KEY');
+    _supabaseUrlController.clear();
+    _supabaseKeyController.clear();
+    setState(() => _supabaseConfigured = false);
+    _showSnackbar('Supabase credentials removed.');
+  }
+
+  Future<void> _syncNow() async {
+    setState(() => _isSyncing = true);
+    final result = await SyncService().syncAll();
+    if (mounted) {
+      if (result.success) {
+        setState(() => _lastSyncAt = DateTime.now().toUtc().toIso8601String());
+        final now = DateTime.now();
+        context.read<TransactionBloc>().add(LoadTransactions());
+        context.read<MabBloc>().add(LoadMabStatus(
+          month: now.month,
+          year: now.year,
+          now: now,
+        ));
+        _showSnackbar('Sync complete — ${result.message}');
+      } else {
+        _showSnackbar(result.message, isError: true);
+      }
+      setState(() => _isSyncing = false);
+    }
+  }
+
   void _showSnackbar(String message, {bool isError = false}) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -76,6 +169,8 @@ class _SettingsPageState extends State<SettingsPage> {
   @override
   void dispose() {
     _apiKeyController.dispose();
+    _supabaseUrlController.dispose();
+    _supabaseKeyController.dispose();
     super.dispose();
   }
 
@@ -103,6 +198,7 @@ class _SettingsPageState extends State<SettingsPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // ── AI Categorization ──────────────────────────────────────────
             _buildSectionHeader('AI CATEGORIZATION'),
             const SizedBox(height: 16),
             _buildInfoCard(
@@ -111,7 +207,7 @@ class _SettingsPageState extends State<SettingsPage> {
               'Get a free key from Google AI Studio (aistudio.google.com).',
             ),
             const SizedBox(height: 16),
-            _buildApiKeyField(),
+            _buildTextField(controller: _apiKeyController, obscure: _obscureText, hint: 'AIza...', onToggleObscure: () => setState(() => _obscureText = !_obscureText)),
             const SizedBox(height: 16),
             Row(
               children: [
@@ -132,7 +228,79 @@ class _SettingsPageState extends State<SettingsPage> {
                 ],
               ],
             ),
+
             const SizedBox(height: 32),
+
+            // ── Cloud Sync ─────────────────────────────────────────────────
+            _buildSectionHeader('CLOUD SYNC'),
+            const SizedBox(height: 16),
+            _buildInfoCard(
+              'Supabase Project',
+              'Connect your own Supabase project for cross-device sync.\n\n'
+              'Run this SQL in your Supabase SQL editor first:\n'
+              'create table transactions (id bigserial primary key, device_id text, local_id int, date text, amount real, direction text, label_type text, recipient_name text, upi_id text, balance_after real, source text, upi_ref_number text, category text, unique(device_id, local_id));\n\n'
+              'create table mab_history (id bigserial primary key, device_id text, date text, end_of_day_balance real, month int, year int, unique(device_id, date));',
+            ),
+            const SizedBox(height: 16),
+            _buildTextField(
+              controller: _supabaseUrlController,
+              obscure: false,
+              hint: 'https://xxxx.supabase.co',
+              label: 'Project URL',
+            ),
+            const SizedBox(height: 12),
+            _buildTextField(
+              controller: _supabaseKeyController,
+              obscure: _obscureSupabaseKey,
+              hint: 'eyJh...',
+              label: 'Anon / Service Key',
+              onToggleObscure: () => setState(() => _obscureSupabaseKey = !_obscureSupabaseKey),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: _buildActionButton(
+                    label: _isSavingSupabase ? 'Saving...' : 'Save & Connect',
+                    color: RozzColors.accent,
+                    onPressed: _isSavingSupabase ? null : _saveSupabaseConfig,
+                  ),
+                ),
+                if (_supabaseConfigured) ...[
+                  const SizedBox(width: 12),
+                  _buildActionButton(
+                    label: 'Clear',
+                    color: RozzColors.expense,
+                    onPressed: _clearSupabaseConfig,
+                  ),
+                ],
+              ],
+            ),
+            if (_supabaseConfigured) ...[
+              const SizedBox(height: 12),
+              _buildActionButton(
+                label: _isSyncing ? 'Syncing...' : 'Sync Now',
+                color: RozzColors.income,
+                onPressed: _isSyncing ? null : _syncNow,
+                fullWidth: true,
+              ),
+              if (_lastSyncAt != null) ...[
+                const SizedBox(height: 10),
+                Center(
+                  child: Text(
+                    'Last synced: ${_formatSyncTime(_lastSyncAt!)}',
+                    style: GoogleFonts.dmSans(
+                      fontSize: 12,
+                      color: RozzColors.textSecondary,
+                    ),
+                  ),
+                ),
+              ],
+            ],
+
+            const SizedBox(height: 32),
+
+            // ── Security ───────────────────────────────────────────────────
             _buildSectionHeader('SECURITY'),
             const SizedBox(height: 16),
             _buildInfoCard(
@@ -141,6 +309,8 @@ class _SettingsPageState extends State<SettingsPage> {
               'Biometric or device PIN is required to re-open.',
             ),
             const SizedBox(height: 32),
+
+            // ── About ──────────────────────────────────────────────────────
             _buildSectionHeader('ABOUT'),
             const SizedBox(height: 16),
             _buildInfoCard(
@@ -153,6 +323,15 @@ class _SettingsPageState extends State<SettingsPage> {
         ),
       ),
     );
+  }
+
+  String _formatSyncTime(String isoString) {
+    try {
+      final dt = DateTime.parse(isoString).toLocal();
+      return '${dt.day}/${dt.month}/${dt.year} ${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+    } catch (_) {
+      return isoString;
+    }
   }
 
   Widget _buildSectionHeader(String title) {
@@ -199,29 +378,45 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
-  Widget _buildApiKeyField() {
+  Widget _buildTextField({
+    required TextEditingController controller,
+    required bool obscure,
+    required String hint,
+    String? label,
+    VoidCallback? onToggleObscure,
+  }) {
     return Container(
       decoration: BoxDecoration(
         color: RozzColors.s1,
         borderRadius: BorderRadius.circular(12),
       ),
       child: TextField(
-        controller: _apiKeyController,
-        obscureText: _obscureText,
+        controller: controller,
+        obscureText: obscure,
         style: GoogleFonts.dmMono(fontSize: 14, color: RozzColors.textPrimary),
         decoration: InputDecoration(
-          hintText: 'AIza...',
-          hintStyle: GoogleFonts.dmMono(color: RozzColors.textSecondary),
-          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-          border: InputBorder.none,
-          suffixIcon: IconButton(
-            onPressed: () => setState(() => _obscureText = !_obscureText),
-            icon: Icon(
-              _obscureText ? Icons.visibility_outlined : Icons.visibility_off_outlined,
-              color: RozzColors.textSecondary,
-              size: 20,
-            ),
+          hintText: hint,
+          labelText: label,
+          labelStyle: GoogleFonts.dmSans(
+            color: RozzColors.textSecondary,
+            fontSize: 12,
           ),
+          hintStyle: GoogleFonts.dmMono(color: RozzColors.textSecondary),
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          border: InputBorder.none,
+          suffixIcon: onToggleObscure != null
+              ? IconButton(
+                  onPressed: onToggleObscure,
+                  icon: Icon(
+                    obscure
+                        ? Icons.visibility_outlined
+                        : Icons.visibility_off_outlined,
+                    color: RozzColors.textSecondary,
+                    size: 20,
+                  ),
+                )
+              : null,
         ),
       ),
     );
@@ -231,8 +426,9 @@ class _SettingsPageState extends State<SettingsPage> {
     required String label,
     required Color color,
     required VoidCallback? onPressed,
+    bool fullWidth = false,
   }) {
-    return ElevatedButton(
+    final btn = ElevatedButton(
       onPressed: onPressed,
       style: ElevatedButton.styleFrom(
         backgroundColor: color.withValues(alpha: 0.15),
@@ -243,5 +439,6 @@ class _SettingsPageState extends State<SettingsPage> {
       ),
       child: Text(label, style: GoogleFonts.dmSans(fontWeight: FontWeight.w600)),
     );
+    return fullWidth ? SizedBox(width: double.infinity, child: btn) : btn;
   }
 }

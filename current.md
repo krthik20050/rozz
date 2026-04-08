@@ -47,9 +47,17 @@
    - [x] TransactionCard shows `category` (or formatted `labelType`) instead of placeholder.
    - [x] `category` field added to Transaction entity, model, datasource, and repository.
 
-## Phase 3: Cloud Sync & Insights (Status: PENDING)
-- [ ] Supabase cloud sync for transactions and MAB history.
-- [ ] Next.js backend endpoints.
-- [ ] Cross-device sync.
-- [ ] Rich financial insights dashboard.
+## Phase 3: Cloud Sync & Insights (Status: COMPLETED)
+- [x] Supabase cloud sync for transactions and MAB history (`lib/core/services/supabase_service.dart`).
+- [x] `SyncService` — bidirectional push/pull with device-scoped rows (`lib/features/sync/sync_service.dart`).
+- [x] Cross-device sync: upsert transactions on conflict(device_id, local_id); upsert MAB on conflict(device_id, date).
+- [x] Settings page extended with Supabase URL + anon key fields, "Save & Connect", "Sync Now" button, last-synced timestamp.
+- [x] Auto-sync on app open when Supabase is configured.
+- [x] Rich financial insights dashboard (`lib/features/insights/`):
+  - [x] Monthly spend bar chart (last 6 months) — `MonthlySpendChart`.
+  - [x] This-month summary card (spent / received / net / avg per day).
+  - [x] Category breakdown with animated progress bars — `CategoryBreakdown`.
+  - [x] Top 5 payees ranked by spend.
+- [x] Third nav-bar icon (bar chart) in `MainScaffold` leads to `InsightsPage`.
+- [x] `copilot-setup-steps.yml` added — Flutter + Java pre-installed for every future Copilot session.
 
