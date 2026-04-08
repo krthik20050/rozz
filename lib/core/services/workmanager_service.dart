@@ -1,5 +1,7 @@
 import 'package:workmanager/workmanager.dart';
 import 'package:rozz/core/database/database_helper.dart';
+import 'package:rozz/core/security/secure_storage_service.dart';
+import 'package:rozz/core/services/gemini_service.dart';
 import 'package:rozz/features/transactions/data/datasources/transaction_local_datasource.dart';
 import 'package:rozz/features/mab/data/datasources/mab_local_datasource.dart';
 import 'package:rozz/features/mab/data/models/mab_record_model.dart';
@@ -35,7 +37,7 @@ Future<bool> _handleEodBalanceTask() async {
 
     // 3. Get last record to handle backfill
     final lastRecord = await mabDatasource.getLastRecord();
-    
+
     if (lastRecord != null) {
       final lastDate = DateTime.parse(lastRecord.date);
       final difference = now.difference(lastDate).inDays;
@@ -71,9 +73,23 @@ Future<bool> _handleEodBalanceTask() async {
 
 Future<bool> _handleGeminiSyncTask() async {
   try {
-    // This is where we will sync parsed transactions with Gemini 
-    // for categorizing 'unknown' labels.
-    print('WorkManager: Running GeminiSyncTask...');
+    final databaseHelper = DatabaseHelper();
+    final transactionDatasource = TransactionLocalDatasourceImpl(databaseHelper);
+    final secureStorage = SecureStorageService();
+    final geminiService = GeminiService(secureStorage);
+
+    final uncategorized = await transactionDatasource.getUncategorizedTransactions(limit: 20);
+    if (uncategorized.isEmpty) return true;
+
+    for (final tx in uncategorized) {
+      if (tx.id == null) continue;
+      final narration = tx.recipientName ?? tx.labelType;
+      final category = await geminiService.categorizeTransaction(narration);
+      if (category != null && category.isNotEmpty) {
+        await transactionDatasource.updateCategory(tx.id!, category);
+      }
+    }
+
     return true;
   } catch (e) {
     return false;
@@ -93,7 +109,7 @@ class WorkmanagerService {
 
     // EOD balance update
     await Workmanager().registerPeriodicTask(
-      "1", 
+      "1",
       eodBalanceTask,
       frequency: const Duration(hours: 12),
       existingWorkPolicy: ExistingPeriodicWorkPolicy.keep,

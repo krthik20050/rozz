@@ -7,6 +7,8 @@ abstract class TransactionLocalDatasource {
   Future<List<TransactionModel>> getAllTransactions();
   Future<List<TransactionModel>> getTransactionsByMonth(int month, int year);
   Future<double?> getLastKnownBalance();
+  Future<List<TransactionModel>> getUncategorizedTransactions({int limit = 20});
+  Future<void> updateCategory(int id, String category);
 }
 
 class TransactionLocalDatasourceImpl implements TransactionLocalDatasource {
@@ -39,7 +41,6 @@ class TransactionLocalDatasourceImpl implements TransactionLocalDatasource {
   @override
   Future<List<TransactionModel>> getTransactionsByMonth(int month, int year) async {
     final db = await _databaseHelper.database;
-    // Assuming month and year can be filtered by parsing the ISO 8601 date string
     final List<Map<String, dynamic>> maps = await db.query(
       'transactions',
       where: "strftime('%m', date) = ? AND strftime('%Y', date) = ?",
@@ -66,5 +67,31 @@ class TransactionLocalDatasourceImpl implements TransactionLocalDatasource {
       return (maps.first['balance_after'] as num).toDouble();
     }
     return null;
+  }
+
+  @override
+  Future<List<TransactionModel>> getUncategorizedTransactions({int limit = 20}) async {
+    final db = await _databaseHelper.database;
+    final List<Map<String, dynamic>> maps = await db.query(
+      'transactions',
+      where: 'category IS NULL AND label_type != ?',
+      whereArgs: ['unknown'],
+      orderBy: 'date DESC',
+      limit: limit,
+    );
+    return List.generate(maps.length, (i) => TransactionModel.fromMap(maps[i]));
+  }
+
+  @override
+  Future<void> updateCategory(int id, String category) async {
+    final db = await _databaseHelper.database;
+    await _databaseHelper.write(() async {
+      await db.update(
+        'transactions',
+        {'category': category},
+        where: 'id = ?',
+        whereArgs: [id],
+      );
+    });
   }
 }

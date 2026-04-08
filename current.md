@@ -15,30 +15,41 @@
 - [x] DM Mono font for financial numbers.
 - [x] Syne Bold for hero numbers.
 
-## Phase 2: Logic & Automation (Status: STARTING)
-
-### Starting Point
-Initialize Phase 2 by setting up the SQLite database and Node.js bridge.
+## Phase 2: Logic & Automation (Status: COMPLETED)
 
 ### Phase 2 Tasks
 1. **Security Setup:**
-   - [ ] Android Keystore (flutter_secure_storage).
-   - [ ] Enable FLAG_SECURE on MainActivity.
+   - [x] Android Keystore (flutter_secure_storage).
+   - [x] Enable FLAG_SECURE on MainActivity.
 2. **Database Layer:**
-   - [ ] SQLite (sqflite) with WAL mode enabled.
-   - [ ] Create schemas for Transactions, MAB, and Sync.
+   - [x] SQLite (sqflite) with WAL mode enabled.
+   - [x] Schemas for Transactions (with category), MAB history, UPI memory, Settings.
+   - [x] WriteQueue for thread-safe DB writes.
 3. **Node.js Bridge:**
-   - [ ] Integrate flutter_js for SMS parsing.
-   - [ ] Implement JS bridge via flutter_js JavascriptRuntime.
+   - [x] Integrate flutter_js for SMS parsing.
+   - [x] JS bridge via flutter_js JavascriptRuntime with regex patterns.
 4. **SMS Parsing (Phase 2 Core):**
-   - [ ] Implement SMS BroadcastReceiver (priority 999).
-   - [ ] Transaction parser logic (Node.js/JS side).
+   - [x] SMS BroadcastReceiver (priority 999) in Android.
+   - [x] Dart SmsParser with 5 HDFC patterns (UPI Debit/Credit, ATM, NEFT, MAB Fine).
+   - [x] Fixed `fromSms` factory bug (`label_type` key).
 5. **Background Work:**
-   - [ ] WorkManager for scheduled API sync jobs.
+   - [x] WorkManager EOD balance snapshot (every 12 h) with backfill.
+   - [x] WorkManager Gemini sync task (every 24 h, network required).
 6. **Gemini Integration:**
-   - [ ] Gemini 2.0 Flash API via REST for categorization insights.
+   - [x] Gemini 2.0 Flash REST categorization with retry/timeout.
+   - [x] Background categorization of uncategorized transactions via WorkManager.
+   - [x] Settings page to securely enter/save/clear Gemini API key.
 7. **Business Logic (BLoC):**
-   - [ ] Replace hardcoded fake data with repository/data source implementations.
-   - [ ] Error handling (try-catch-finally) across all services.
+   - [x] TransactionBloc wired to SQLite repository.
+   - [x] MabBloc wired to SQLite repository with real daily balance records.
+   - [x] MabChart now uses real `monthRecords` from MabBloc state.
+   - [x] BalanceHero now shows real today's spend computed from transactions.
+   - [x] TransactionCard shows `category` (or formatted `labelType`) instead of placeholder.
+   - [x] `category` field added to Transaction entity, model, datasource, and repository.
 
+## Phase 3: Cloud Sync & Insights (Status: PENDING)
+- [ ] Supabase cloud sync for transactions and MAB history.
+- [ ] Next.js backend endpoints.
+- [ ] Cross-device sync.
+- [ ] Rich financial insights dashboard.
 
