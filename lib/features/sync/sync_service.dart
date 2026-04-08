@@ -161,7 +161,7 @@ class SyncService {
             upiRefNumber: row['upi_ref_number'] as String?,
             category: row['category'] as String?,
           );
-          await _txDatasource!.insertTransaction(model);
+          await _txDatasource!.upsertTransaction(model);
           pulled++;
         } catch (e) {
           debugPrint('SyncService: pull tx row error: $e');

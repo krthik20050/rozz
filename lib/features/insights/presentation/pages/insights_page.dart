@@ -16,6 +16,9 @@ class InsightsPage extends StatelessWidget {
 
   // ── Analytics helpers ────────────────────────────────────────────────────
 
+  double _sumAmounts(List<Transaction> txs, String direction) =>
+      txs.where((t) => t.direction == direction).fold(0.0, (s, t) => s + t.amount);
+
   List<Map<String, dynamic>> _buildMonthlyData(List<Transaction> txs) {
     final now = DateTime.now();
     return List.generate(6, (i) {
@@ -32,10 +35,8 @@ class InsightsPage extends StatelessWidget {
       return {
         'month': month,
         'year': year,
-        'debit':
-            monthTxs.where((t) => t.direction == 'debit').fold(0.0, (s, t) => s + t.amount),
-        'credit':
-            monthTxs.where((t) => t.direction == 'credit').fold(0.0, (s, t) => s + t.amount),
+        'debit': _sumAmounts(monthTxs, 'debit'),
+        'credit': _sumAmounts(monthTxs, 'credit'),
       };
     });
   }

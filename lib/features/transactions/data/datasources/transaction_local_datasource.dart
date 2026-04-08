@@ -4,6 +4,7 @@ import 'package:sqflite/sqflite.dart';
 
 abstract class TransactionLocalDatasource {
   Future<void> insertTransaction(TransactionModel transaction);
+  Future<void> upsertTransaction(TransactionModel transaction);
   Future<List<TransactionModel>> getAllTransactions();
   Future<List<TransactionModel>> getTransactionsByMonth(int month, int year);
   Future<double?> getLastKnownBalance();
@@ -24,6 +25,21 @@ class TransactionLocalDatasourceImpl implements TransactionLocalDatasource {
         'transactions',
         transaction.toMap(),
         conflictAlgorithm: ConflictAlgorithm.ignore,
+      );
+    });
+  }
+
+  /// Inserts or replaces a transaction — used when pulling from remote sync
+  /// so that remote updates (e.g. newly categorised rows) overwrite stale
+  /// local data.
+  @override
+  Future<void> upsertTransaction(TransactionModel transaction) async {
+    final db = await _databaseHelper.database;
+    await _databaseHelper.write(() async {
+      await db.insert(
+        'transactions',
+        transaction.toMap(),
+        conflictAlgorithm: ConflictAlgorithm.replace,
       );
     });
   }

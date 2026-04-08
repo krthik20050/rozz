@@ -207,7 +207,13 @@ class _SettingsPageState extends State<SettingsPage> {
               'Get a free key from Google AI Studio (aistudio.google.com).',
             ),
             const SizedBox(height: 16),
-            _buildTextField(controller: _apiKeyController, obscure: _obscureText, hint: 'AIza...', onToggleObscure: () => setState(() => _obscureText = !_obscureText)),
+            _buildTextField(
+              controller: _apiKeyController,
+              obscure: _obscureText,
+              hint: 'AIza...',
+              onToggleObscure: () =>
+                  setState(() => _obscureText = !_obscureText),
+            ),
             const SizedBox(height: 16),
             Row(
               children: [
