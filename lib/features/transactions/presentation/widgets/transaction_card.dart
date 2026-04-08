@@ -25,7 +25,12 @@ class TransactionCard extends StatelessWidget {
       case 'bank_sms':
         return 'Bank SMS';
       default:
-        return labelType.replaceAll('_', ' ').toUpperCase();
+        return labelType
+            .split('_')
+            .map((word) => word.isEmpty
+                ? ''
+                : '${word[0].toUpperCase()}${word.substring(1).toLowerCase()}')
+            .join(' ');
     }
   }
 

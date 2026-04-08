@@ -83,7 +83,11 @@ Future<bool> _handleGeminiSyncTask() async {
 
     for (final tx in uncategorized) {
       if (tx.id == null) continue;
-      final narration = tx.recipientName ?? tx.labelType;
+      final parts = <String>[];
+      if (tx.recipientName != null) parts.add(tx.recipientName!);
+      parts.add(tx.labelType.replaceAll('_', ' '));
+      if (tx.rawSms != null && tx.rawSms!.length <= 160) parts.add(tx.rawSms!);
+      final narration = parts.join(' – ');
       final category = await geminiService.categorizeTransaction(narration);
       if (category != null && category.isNotEmpty) {
         await transactionDatasource.updateCategory(tx.id!, category);

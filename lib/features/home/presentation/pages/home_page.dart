@@ -16,10 +16,11 @@ class HomePage extends StatelessWidget {
   const HomePage({super.key});
 
   double _computeTodaySpend(List<Transaction> transactions) {
-    final todayStr = DateFormat('yyyy-MM-dd').format(DateTime.now());
+    final todayFormatter = DateFormat('yyyy-MM-dd');
+    final todayStr = todayFormatter.format(DateTime.now());
     return transactions
         .where((tx) {
-          final dateStr = DateFormat('yyyy-MM-dd').format(DateTime.parse(tx.date).toLocal());
+          final dateStr = todayFormatter.format(DateTime.parse(tx.date).toLocal());
           return dateStr == todayStr && tx.direction == 'debit';
         })
         .fold(0.0, (sum, tx) => sum + tx.amount);
