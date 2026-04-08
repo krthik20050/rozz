@@ -13,6 +13,7 @@ class TransactionModel extends Transaction {
     required super.source,
     super.upiRefNumber,
     super.rawSms,
+    super.category,
   });
 
   factory TransactionModel.fromNodeJson(Map<String, dynamic> data) {
@@ -37,11 +38,11 @@ class TransactionModel extends Transaction {
       date: DateTime.now().toUtc().toIso8601String(),
       amount: (parsed['amount'] as num).toDouble(),
       direction: parsed['direction'] as String,
-      labelType: parsed['type'] as String,
+      labelType: parsed['label_type'] as String,
       recipientName: parsed['recipient_name'] as String?,
       upiId: parsed['upi_id'] as String?,
-      balanceAfter: parsed['balance_after'] != null 
-          ? (parsed['balance_after'] as num).toDouble() 
+      balanceAfter: parsed['balance_after'] != null
+          ? (parsed['balance_after'] as num).toDouble()
           : null,
       source: 'sms',
       upiRefNumber: parsed['upi_ref_number'] as String?,
@@ -58,12 +59,13 @@ class TransactionModel extends Transaction {
       labelType: map['label_type'] as String,
       recipientName: map['recipient_name'] as String?,
       upiId: map['upi_id'] as String?,
-      balanceAfter: map['balance_after'] != null 
-          ? (map['balance_after'] as num).toDouble() 
+      balanceAfter: map['balance_after'] != null
+          ? (map['balance_after'] as num).toDouble()
           : null,
       source: map['source'] as String,
       upiRefNumber: map['upi_ref_number'] as String?,
       rawSms: map['raw_sms'] as String?,
+      category: map['category'] as String?,
     );
   }
 
@@ -80,6 +82,7 @@ class TransactionModel extends Transaction {
       'source': source,
       'upi_ref_number': upiRefNumber,
       'raw_sms': rawSms,
+      'category': category,
     };
   }
 }

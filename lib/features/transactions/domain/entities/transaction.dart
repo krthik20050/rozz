@@ -12,6 +12,7 @@ class Transaction extends Equatable {
   final String source;
   final String? upiRefNumber;
   final String? rawSms;
+  final String? category;
 
   const Transaction({
     this.id,
@@ -25,6 +26,7 @@ class Transaction extends Equatable {
     required this.source,
     this.upiRefNumber,
     this.rawSms,
+    this.category,
   });
 
   @override
@@ -40,5 +42,6 @@ class Transaction extends Equatable {
         source,
         upiRefNumber,
         rawSms,
+        category,
       ];
 }

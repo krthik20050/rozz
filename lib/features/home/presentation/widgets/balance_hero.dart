@@ -5,11 +5,15 @@ import 'package:intl/intl.dart';
 
 class BalanceHero extends StatelessWidget {
   final double balance;
-  const BalanceHero({super.key, required this.balance});
+  final double todaySpend;
+
+  const BalanceHero({super.key, required this.balance, this.todaySpend = 0.0});
 
   @override
   Widget build(BuildContext context) {
-    final amount = NumberFormat.currency(locale: 'en_IN', symbol: '\u20B9').format(balance);
+    final currencyFormat = NumberFormat.currency(locale: 'en_IN', symbol: '\u20B9');
+    final amount = currencyFormat.format(balance);
+    final spendAmount = currencyFormat.format(todaySpend);
 
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 32),
@@ -38,10 +42,10 @@ class BalanceHero extends StatelessWidget {
             children: [
               const Icon(Icons.arrow_drop_down, color: RozzColors.expense, size: 16),
               Text(
-                ' \u20B90 today', // Dummy for now
+                ' $spendAmount today',
                 style: GoogleFonts.dmSans(
                   fontSize: 12,
-                  color: RozzColors.expense,
+                  color: todaySpend > 0 ? RozzColors.expense : RozzColors.textSecondary,
                 ),
               ),
             ],

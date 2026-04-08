@@ -10,6 +10,46 @@ class TransactionCard extends StatelessWidget {
 
   const TransactionCard({super.key, required this.transaction, this.onTap});
 
+  String _formatLabelType(String labelType) {
+    switch (labelType) {
+      case 'upi_debit':
+        return 'UPI Debit';
+      case 'upi_credit':
+        return 'UPI Credit';
+      case 'atm':
+        return 'ATM Withdrawal';
+      case 'neft':
+        return 'NEFT Transfer';
+      case 'fine':
+        return 'MAB Fine';
+      case 'bank_sms':
+        return 'Bank SMS';
+      default:
+        return labelType
+            .split('_')
+            .map((word) => word.isEmpty
+                ? ''
+                : '${word[0].toUpperCase()}${word.substring(1).toLowerCase()}')
+            .join(' ');
+    }
+  }
+
+  IconData _getIcon(String labelType) {
+    switch (labelType) {
+      case 'upi_debit':
+      case 'upi_credit':
+        return Icons.account_balance_wallet_outlined;
+      case 'atm':
+        return Icons.atm_outlined;
+      case 'neft':
+        return Icons.swap_horiz_outlined;
+      case 'fine':
+        return Icons.warning_amber_outlined;
+      default:
+        return Icons.compare_arrows;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDebit = transaction.direction == 'debit';
@@ -19,6 +59,8 @@ class TransactionCard extends StatelessWidget {
 
     final dateTime = DateTime.parse(transaction.date).toLocal();
     final timeStr = DateFormat('hh:mm a').format(dateTime);
+
+    final subtitle = transaction.category ?? _formatLabelType(transaction.labelType);
 
     return InkWell(
       onTap: onTap,
@@ -39,7 +81,7 @@ class TransactionCard extends StatelessWidget {
                 color: RozzColors.textSecondary.withValues(alpha: 0.1),
                 shape: BoxShape.circle,
               ),
-              child: const Icon(Icons.compare_arrows, size: 20, color: RozzColors.textSecondary),
+              child: Icon(_getIcon(transaction.labelType), size: 20, color: RozzColors.textSecondary),
             ),
             const SizedBox(width: 16),
             Expanded(
@@ -48,7 +90,7 @@ class TransactionCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    transaction.recipientName ?? transaction.labelType.toUpperCase(),
+                    transaction.recipientName ?? _formatLabelType(transaction.labelType),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: GoogleFonts.dmSans(
@@ -59,10 +101,11 @@ class TransactionCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    'Narration coming tonight \u2727',
+                    subtitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                     style: GoogleFonts.dmSans(
                       fontSize: 13,
-                      fontStyle: FontStyle.italic,
                       color: RozzColors.textSecondary,
                     ),
                   ),
