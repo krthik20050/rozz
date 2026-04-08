@@ -32,7 +32,7 @@ class MabBloc extends Bloc<MabEvent, MabState> {
         year: event.year,
         now: now,
       );
-      emit(MabLoaded(status));
+      emit(MabLoaded(status, records));
     } catch (e) {
       emit(MabError(e.toString()));
     }

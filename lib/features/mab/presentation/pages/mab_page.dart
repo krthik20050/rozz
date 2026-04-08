@@ -37,7 +37,7 @@ class MabPage extends StatelessWidget {
           if (state is MabInitial || state is MabLoading) {
             return _buildLoading();
           } else if (state is MabLoaded) {
-            return _buildLoaded(context, state.status);
+            return _buildLoaded(context, state);
           } else if (state is MabError) {
             return ErrorState(message: state.message);
           }
@@ -85,16 +85,22 @@ class MabPage extends StatelessWidget {
     );
   }
 
-  Widget _buildLoaded(BuildContext context, MabStatus status) {
+  Widget _buildLoaded(BuildContext context, MabState state) {
+    final status = (state as MabLoaded).status;
+    final records = state.records;
+    final dailyBalances = records.map((r) => r.endOfDayBalance).toList();
+
     return SingleChildScrollView(
       child: Column(
         children: [
           MabZoneBanner(zone: status.zone),
           MabStatsRow(status: status),
           MabInstructionCard(instruction: status.instruction),
-          const MabChart(
-            dailyBalances: [12000, 11500, 13000, 12500, 11000, 10500, 10000, 9500, 9800, 10200], // Dummy
-            threshold: 10000,
+          MabChart(
+            dailyBalances: dailyBalances.isEmpty
+                ? [status.currentMab > 0 ? status.currentMab : 0]
+                : dailyBalances,
+            threshold: status.requiredMin,
           ),
           const SizedBox(height: 24),
           _buildPredictionRow(status),

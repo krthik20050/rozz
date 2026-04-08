@@ -28,6 +28,7 @@ class TransactionRepositoryImpl implements TransactionRepository {
       source: transaction.source,
       upiRefNumber: transaction.upiRefNumber,
       rawSms: transaction.rawSms,
+      category: transaction.category,
     );
     await _localDatasource.insertTransaction(model);
   }
@@ -35,5 +36,15 @@ class TransactionRepositoryImpl implements TransactionRepository {
   @override
   Future<double?> getLastKnownBalance() async {
     return await _localDatasource.getLastKnownBalance();
+  }
+
+  @override
+  Future<List<Transaction>> getUncategorizedTransactions({int limit = 20}) async {
+    return await _localDatasource.getUncategorizedTransactions(limit: limit);
+  }
+
+  @override
+  Future<void> updateCategory(int id, String category) async {
+    await _localDatasource.updateCategory(id, category);
   }
 }
