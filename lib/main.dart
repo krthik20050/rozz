@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:rozz/core/database/database_helper.dart';
+import 'package:rozz/core/security/secure_storage_service.dart';
+import 'package:rozz/core/services/supabase_service.dart';
+import 'package:rozz/features/sync/sync_service.dart';
 import 'package:rozz/features/transactions/data/datasources/sms_parser.dart';
 import 'package:rozz/features/transactions/data/datasources/transaction_local_datasource.dart';
 import 'package:rozz/features/transactions/data/repositories/transaction_repository_impl.dart';
@@ -13,6 +16,7 @@ import 'package:rozz/features/mab/domain/usecases/calculate_mab.dart';
 import 'package:rozz/features/mab/presentation/bloc/mab_bloc.dart';
 import 'package:rozz/features/home/presentation/pages/home_page.dart';
 import 'package:rozz/features/mab/presentation/pages/mab_page.dart';
+import 'package:rozz/features/insights/presentation/pages/insights_page.dart';
 import 'package:rozz/features/onboarding/presentation/pages/lock_screen.dart';
 import 'package:rozz/core/services/workmanager_service.dart';
 import 'package:rozz/core/services/node_service.dart';
@@ -29,27 +33,43 @@ void main() async {
   await NodeService().startEngine();
 
   final databaseHelper = DatabaseHelper();
-  final transactionLocalDatasource = TransactionLocalDatasourceImpl(databaseHelper);
-  final transactionRepository = TransactionRepositoryImpl(transactionLocalDatasource);
-  
+  final secureStorage = SecureStorageService();
+
+  final transactionLocalDatasource =
+      TransactionLocalDatasourceImpl(databaseHelper);
+  final transactionRepository =
+      TransactionRepositoryImpl(transactionLocalDatasource);
+
   final mabLocalDatasource = MabLocalDatasourceImpl(databaseHelper);
   final mabRepository = MabRepositoryImpl(mabLocalDatasource);
   final calculateMab = CalculateMab();
 
   final smsParser = SmsParser();
 
+  // Initialize Supabase from saved credentials (no-op if not configured)
+  await SupabaseService().initializeFromStorage(secureStorage);
+
+  // Wire up the sync service
+  SyncService().init(
+    txDatasource: transactionLocalDatasource,
+    mabDatasource: mabLocalDatasource,
+    secureStorage: secureStorage,
+  );
+
   runApp(
     MultiBlocProvider(
       providers: [
         BlocProvider(
-          create: (context) => TransactionBloc(transactionRepository)..add(LoadTransactions()),
+          create: (context) =>
+              TransactionBloc(transactionRepository)..add(LoadTransactions()),
         ),
         BlocProvider(
-          create: (context) => MabBloc(mabRepository, calculateMab)..add(LoadMabStatus(
-            month: DateTime.now().month, 
-            year: DateTime.now().year,
-            now: DateTime.now(),
-          )),
+          create: (context) => MabBloc(mabRepository, calculateMab)
+            ..add(LoadMabStatus(
+              month: DateTime.now().month,
+              year: DateTime.now().year,
+              now: DateTime.now(),
+            )),
         ),
       ],
       child: RozzApp(smsParser: smsParser),
@@ -153,10 +173,32 @@ class MainScaffold extends StatefulWidget {
 
 class _MainScaffoldState extends State<MainScaffold> {
   int _currentIndex = 0;
-  final _pages = [
-    const HomePage(),
-    const MabPage(),
+  final _pages = const [
+    HomePage(),
+    MabPage(),
+    InsightsPage(),
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    _autoSync();
+  }
+
+  /// Background sync on every cold start if Supabase is configured.
+  Future<void> _autoSync() async {
+    if (!SupabaseService().isInitialized) return;
+    final result = await SyncService().syncAll();
+    if (result.success && mounted) {
+      final now = DateTime.now();
+      context.read<TransactionBloc>().add(LoadTransactions());
+      context.read<MabBloc>().add(LoadMabStatus(
+        month: now.month,
+        year: now.year,
+        now: now,
+      ));
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -174,6 +216,8 @@ class _MainScaffoldState extends State<MainScaffold> {
         items: const [
           BottomNavigationBarItem(icon: Icon(Icons.home_outlined), label: ''),
           BottomNavigationBarItem(icon: Icon(Icons.shield_outlined), label: ''),
+          BottomNavigationBarItem(
+              icon: Icon(Icons.bar_chart_outlined), label: ''),
         ],
       ),
     );
