@@ -31,4 +31,16 @@ void main() {
     expect(result['direction'], 'debit');
     expect(result['amount'], 413.0);
   });
+
+  test('daily balance advice is a balance snapshot, not a transaction', () {
+    final result = parser.parse(
+      'Available Bal in HDFC Bank A/c XX4736 as on yesterday:14-AUG-26 is INR 59.67. '
+      'Cheques are subject to clearing.For updated A/C Bal dial 18002703333.',
+    );
+    expect(result, isNotNull);
+    expect(result!['label_type'], 'balance_snapshot');
+    expect(result['balance'], 59.67);
+    expect(result['date'], '2026-08-14');
+    expect(result['amount'], isNull);
+  });
 }

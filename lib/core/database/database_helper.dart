@@ -7,7 +7,7 @@ import 'write_queue.dart';
 class DatabaseHelper {
   static final DatabaseHelper _instance = DatabaseHelper._internal();
   static Database? _database;
-  static const int _version = 2;
+  static const int _version = 3;
   final WriteQueue _writeQueue = WriteQueue();
 
   factory DatabaseHelper() => _instance;
@@ -69,7 +69,27 @@ class DatabaseHelper {
     await db.execute('ALTER TABLE transactions_new RENAME TO transactions');
     await db.execute(_mabDdl);
     await db.execute(_rawInboxDdl);
-    await db.execute(_txDedupeIndexDdl);
+
+    if (oldVersion < 3) {
+      // v3: purge non-transaction alerts (daily balance advice + low-balance
+      // warnings) that the parser previously imported as transactions, then
+      // rebuild the dedupe index so NULL-balance rows can't duplicate.
+      await db.delete(
+        'transactions',
+        where: 'raw_sms LIKE ? OR raw_sms LIKE ?',
+        whereArgs: ['%as on yesterday%', '%gone below minimum limit%'],
+      );
+      await db.execute('''
+        DELETE FROM transactions WHERE id NOT IN (
+          SELECT MIN(id) FROM transactions
+          GROUP BY direction, amount, date, COALESCE(balance_after, -1), raw_sms
+        )
+      ''');
+      await db.execute('DROP INDEX IF EXISTS idx_tx_dedupe');
+      await db.execute(_txDedupeIndexDdl);
+    } else {
+      await db.execute(_txDedupeIndexDdl);
+    }
   }
 
   static const String _transactionsBody = '''
@@ -111,9 +131,11 @@ class DatabaseHelper {
   ''';
 
   /// Ref-less transactions (ATM, MAB fine) can't dedupe on upi_ref_number;
-  /// balance_after breaks same-day/same-amount ties.
+  /// balance_after breaks same-day/same-amount ties. COALESCE makes NULL-balance
+  /// rows dedupe too (SQLite treats NULLs as distinct in unique indexes), and
+  /// raw_sms makes the key the full message text — identical SMS = same txn.
   static const String _txDedupeIndexDdl =
-      'CREATE UNIQUE INDEX IF NOT EXISTS idx_tx_dedupe ON transactions(direction, amount, date, balance_after)';
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_tx_dedupe ON transactions(direction, amount, date, COALESCE(balance_after, -1), raw_sms)';
 
   /// For read operations
   Future<dynamic> query(Future<dynamic> Function(Database db) operation) async {

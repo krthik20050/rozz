@@ -67,6 +67,22 @@ class TransactionLocalDatasourceImpl implements TransactionLocalDatasource {
 
   @override
   Future<double?> getLastKnownBalance() async {
+    // The real current balance is the latest EOD snapshot (recorded from HDFC's
+    // daily balance-advice SMS into mab_history), NOT the last transaction's
+    // balance_after — that can be weeks stale.
+    final eod = await _databaseHelper.query((db) async {
+      final maps = await db.query(
+        'mab_history',
+        columns: ['end_of_day_balance'],
+        orderBy: 'date DESC',
+        limit: 1,
+      );
+      if (maps.isEmpty) return null;
+      return (maps.first['end_of_day_balance'] as num).toDouble();
+    });
+    if (eod != null) return eod as double;
+
+    // Fallback: most recent transaction balance
     final List<Map<String, dynamic>> maps = await _databaseHelper.query((db) async {
       return await db.query(
         'transactions',

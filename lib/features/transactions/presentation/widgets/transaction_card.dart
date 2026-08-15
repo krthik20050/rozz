@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:rozz/core/theme/colors.dart';
 import 'package:rozz/features/transactions/domain/entities/transaction.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -10,19 +10,31 @@ class TransactionCard extends StatelessWidget {
 
   const TransactionCard({super.key, required this.transaction, this.onTap});
 
+  static final _phoneLikeRe = RegExp(r'^[\d+\s\-]{6,}$');
+  static final _accountMaskRe = RegExp(r'[*\*]');
+  static final _merchantRe = RegExp(
+    r'\b(?:at|to)\s+([A-Za-z0-9&@.\/\-]+(?:\s+[A-Za-z0-9&@.\/\-]+)*?)'
+    r'(?=\.|,|$|\s+(?:on|via|by|for|ref)\b)',
+    caseSensitive: false,
+  );
+
   String _formatLabelType(String labelType) {
     switch (labelType) {
-      case 'upi_debit':
-        return 'UPI Debit';
-      case 'upi_credit':
-        return 'UPI Credit';
+      case 'upi':
+        return 'UPI Payment';
       case 'atm':
         return 'ATM Withdrawal';
       case 'neft':
         return 'NEFT Transfer';
+      case 'imps':
+        return 'IMPS Transfer';
+      case 'card':
+        return 'Card Payment';
       case 'fine':
         return 'MAB Fine';
       case 'bank_sms':
+        return 'Bank SMS';
+      case 'unknown':
         return 'Bank SMS';
       default:
         return labelType
@@ -34,19 +46,46 @@ class TransactionCard extends StatelessWidget {
     }
   }
 
-  IconData _getIcon(String labelType) {
+  /// The name a human can read: the merchant / recipient. Falls back to
+  /// extracting "At ..." / "To ..." from the raw SMS, then to the transaction
+  /// type. Filters junk the parser sometimes grabs (phone numbers, masked
+  /// account strings, "clearing").
+  String _displayTitle(Transaction transaction) {
+    final raw = transaction.rawSms ?? '';
+    final name = transaction.recipientName?.trim() ?? '';
+    if (name.isNotEmpty &&
+        !_phoneLikeRe.hasMatch(name) &&
+        !_accountMaskRe.hasMatch(name) &&
+        name.toLowerCase() != 'clearing') {
+      return name;
+    }
+
+    final merchant = _merchantRe.firstMatch(raw);
+    if (merchant != null) {
+      final m = merchant.group(1)!.trim();
+      if (m.isNotEmpty && !_phoneLikeRe.hasMatch(m)) return m;
+    }
+
+    if (transaction.direction == 'credit' && raw.toLowerCase().contains('deposited')) {
+      return 'Cash Deposit';
+    }
+    return _formatLabelType(transaction.labelType);
+  }
+
+  IconData _getIcon(String labelType, String direction) {
+    if (direction == 'credit') return Icons.south_west;
     switch (labelType) {
-      case 'upi_debit':
-      case 'upi_credit':
-        return Icons.account_balance_wallet_outlined;
       case 'atm':
         return Icons.atm_outlined;
       case 'neft':
+      case 'imps':
         return Icons.swap_horiz_outlined;
       case 'fine':
         return Icons.warning_amber_outlined;
+      case 'card':
+        return Icons.credit_card_outlined;
       default:
-        return Icons.compare_arrows;
+        return Icons.north_east;
     }
   }
 
@@ -60,6 +99,7 @@ class TransactionCard extends StatelessWidget {
     final dateTime = DateTime.parse(transaction.date).toLocal();
     final timeStr = DateFormat('hh:mm a').format(dateTime);
 
+    final title = _displayTitle(transaction);
     final subtitle = transaction.category ?? _formatLabelType(transaction.labelType);
 
     return InkWell(
@@ -81,7 +121,11 @@ class TransactionCard extends StatelessWidget {
                 color: RozzColors.textSecondary.withValues(alpha: 0.1),
                 shape: BoxShape.circle,
               ),
-              child: Icon(_getIcon(transaction.labelType), size: 20, color: RozzColors.textSecondary),
+              child: Icon(
+                _getIcon(transaction.labelType, transaction.direction),
+                size: 20,
+                color: isDebit ? RozzColors.expense : RozzColors.income,
+              ),
             ),
             const SizedBox(width: 16),
             Expanded(
@@ -90,7 +134,7 @@ class TransactionCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    transaction.recipientName ?? _formatLabelType(transaction.labelType),
+                    title,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: GoogleFonts.dmSans(
@@ -135,10 +179,11 @@ class TransactionCard extends StatelessWidget {
                 ),
               ],
             ),
+            const SizedBox(width: 4),
+            Icon(Icons.chevron_right, size: 18, color: RozzColors.textSecondary.withValues(alpha: 0.5)),
           ],
         ),
       ),
     );
   }
 }
-
