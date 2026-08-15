@@ -16,7 +16,7 @@ class TransactionRepositoryImpl implements TransactionRepository {
 
   @override
   Future<void> saveTransaction(Transaction transaction) async {
-    final model = TransactionModel(
+final model = TransactionModel(
       id: transaction.id,
       date: transaction.date,
       amount: transaction.amount,
@@ -36,15 +36,5 @@ class TransactionRepositoryImpl implements TransactionRepository {
   @override
   Future<double?> getLastKnownBalance() async {
     return await _localDatasource.getLastKnownBalance();
-  }
-
-  @override
-  Future<List<Transaction>> getUncategorizedTransactions({int limit = 20}) async {
-    return await _localDatasource.getUncategorizedTransactions(limit: limit);
-  }
-
-  @override
-  Future<void> updateCategory(int id, String category) async {
-    await _localDatasource.updateCategory(id, category);
   }
 }

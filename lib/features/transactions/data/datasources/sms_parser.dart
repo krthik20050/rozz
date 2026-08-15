@@ -1,96 +1,71 @@
 class SmsParser {
+  static final _amountRe = RegExp(r'(?:Rs\.?|INR|₹)\s*([\d,]+(?:\.\d+)?)');
+  static final _debitRe = RegExp(r'\b(?:debited|spent|withdrawn|sent)\b|Payment\s+of', caseSensitive: false);
+  static final _creditRe = RegExp(r'\b(?:credited|received)\b', caseSensitive: false);
+  static final _recipientRe = RegExp(
+    r'\b(?:to|from|at)\s+(?!A\/?c\b|a\/?c\b)(?:VPA\s+)?'
+    r'([A-Za-z0-9&@.\/\-]+?(?:\s+[A-Za-z0-9&@\/\-]+)*?)'
+    r'(?=\.|,|(?:\s+(?:via|by|at|Ref|UPI|IMPS|NEFT|from)\b)|(?:\s+on\s+\d)|$)',
+  );
+  static final _refRe = RegExp(r'\bRef(?!und)\b\s*:?\s*([A-Za-z0-9]+)');
+  static final _balanceRe = RegExp(
+    r'\b(?:Avl\s*bal|Bal|balance)\s*:?\s*(?:Rs\.?|INR)?\s*([\d,]+(?:\.\d+)?)',
+    caseSensitive: false,
+  );
+  static final _dateRe = RegExp(r'\bon\s+(\d{1,2})-(\d{1,2})-(\d{2,4})');
+
   Map<String, dynamic>? parse(String body) {
     try {
-      // Clean amount: Rs.42,340.00 -> 42340.0
-      double parseAmount(String amountStr) {
+      double parseAmount(String? amountStr) {
+        if (amountStr == null) return 0;
         return double.parse(amountStr.replaceAll(',', ''));
       }
 
-      // Pattern A: UPI Debit
-      // Rs.340.00 debited from A/c XX1234 on 04-03-26 to SWIGGY via UPI Ref 421874651243. Avl bal:Rs.42,340.00
-      final patternA = RegExp(r'Rs\.([\d,.]+)\s+debited\s+from.*to\s+(.+)\s+via\s+UPI\s+Ref\s+(\d+)\.\s+Avl\s+bal:Rs\.([\d,.]+)');
-      if (patternA.hasMatch(body)) {
-        final match = patternA.firstMatch(body)!;
-        return {
-          'amount': parseAmount(match.group(1)!),
-          'direction': 'debit',
-          'recipient_name': match.group(2)!.trim(),
-          'upi_ref_number': match.group(3),
-          'balance_after': parseAmount(match.group(4)!),
-          'label_type': 'upi_debit',
-          'raw_sms': body,
-        };
+      final amountMatch = _amountRe.firstMatch(body);
+      if (amountMatch == null) {
+        return {'label_type': 'unknown', 'raw_sms': body};
       }
 
-      // Pattern B: UPI Credit
-      // Rs.1500.00 credited to A/c XX1234 on 04-03-26 via UPI from JOHN. Ref 521874651244. Bal:Rs.43,840.00
-      final patternB = RegExp(r'Rs\.([\d,.]+)\s+credited\s+to.*via\s+UPI\s+from\s+(.+)\.\s+Ref\s+(\d+)\.\s+Bal:Rs\.([\d,.]+)');
-      if (patternB.hasMatch(body)) {
-        final match = patternB.firstMatch(body)!;
-        return {
-          'amount': parseAmount(match.group(1)!),
-          'direction': 'credit',
-          'recipient_name': match.group(2)!.trim(),
-          'upi_ref_number': match.group(3),
-          'balance_after': parseAmount(match.group(4)!),
-          'label_type': 'upi_credit',
-          'raw_sms': body,
-        };
+      final direction = _creditRe.hasMatch(body)
+          ? 'credit'
+          : (_debitRe.hasMatch(body) ? 'debit' : 'unknown');
+
+      final recipientMatch = _recipientRe.firstMatch(body);
+      final refMatch = _refRe.firstMatch(body);
+      final balanceMatch = _balanceRe.firstMatch(body);
+      final dateMatch = _dateRe.firstMatch(body);
+
+      String? date;
+      if (dateMatch != null) {
+        final day = int.parse(dateMatch.group(1)!);
+        final month = int.parse(dateMatch.group(2)!);
+        final year = int.parse(dateMatch.group(3)!);
+        date = DateTime.utc(year < 100 ? 2000 + year : year, month, day).toIso8601String();
       }
 
-      // Pattern C: ATM Withdrawal
-      // Rs.2000.00 withdrawn from A/c XX1234 at ATM on 04-03-26. Avl Bal:Rs.41,840.00
-      final patternC = RegExp(r'Rs\.([\d,.]+)\s+withdrawn\s+from.*at\s+ATM.*Avl\s+Bal:Rs\.([\d,.]+)');
-      if (patternC.hasMatch(body)) {
-        final match = patternC.firstMatch(body)!;
-        return {
-          'amount': parseAmount(match.group(1)!),
-          'direction': 'debit',
-          'label_type': 'atm',
-          'balance_after': parseAmount(match.group(2)!),
-          'raw_sms': body,
-        };
-      }
-
-      // Pattern D: NEFT Credit
-      // Rs.45000.00 credited to A/c XX1234 on 04-03-26 by NEFT from EMPLOYER. Ref:N042611234. Bal:Rs.86,840.00
-      final patternD = RegExp(r'Rs\.([\d,.]+)\s+credited\s+to.*by\s+NEFT\s+from\s+(.+)\.\s+Ref:(.+)\.\s+Bal:Rs\.([\d,.]+)');
-      if (patternD.hasMatch(body)) {
-        final match = patternD.firstMatch(body)!;
-        return {
-          'amount': parseAmount(match.group(1)!),
-          'direction': 'credit',
-          'recipient_name': match.group(2)!.trim(),
-          'upi_ref_number': match.group(3)!.trim(),
-          'balance_after': parseAmount(match.group(4)!),
-          'label_type': 'neft',
-          'raw_sms': body,
-        };
-      }
-
-      // Pattern E: MAB Fine
-      // Rs.413.00 debited from A/c XX1234 on 01-03-26 for non-maintenance of Average Balance.
-      final patternE = RegExp(r'Rs\.([\d,.]+)\s+debited\s+from.*non-maintenance\s+of\s+Average\s+Balance');
-      if (patternE.hasMatch(body)) {
-        final match = patternE.firstMatch(body)!;
-        return {
-          'amount': parseAmount(match.group(1)!),
-          'direction': 'debit',
-          'label_type': 'fine',
-          'raw_sms': body,
-        };
-      }
-
-      // Unknown Format
       return {
-        'label_type': 'unknown',
+        'amount': parseAmount(amountMatch.group(1)),
+        'direction': direction,
+        'recipient_name': recipientMatch?.group(1)?.trim(),
+        'upi_ref_number': refMatch?.group(1),
+        'balance_after': balanceMatch != null ? parseAmount(balanceMatch.group(1)) : null,
+        'label_type': _labelType(body),
+        'date': date,
         'raw_sms': body,
       };
     } catch (_) {
-      return {
-        'label_type': 'unknown',
-        'raw_sms': body,
-      };
+      return {'label_type': 'unknown', 'raw_sms': body};
     }
+  }
+
+  String _labelType(String body) {
+    final b = body.toLowerCase();
+    if (b.contains('upi')) return 'upi';
+    if (b.contains('atm')) return 'atm';
+    if (b.contains('neft')) return 'neft';
+    if (b.contains('imps')) return 'imps';
+    if (b.contains('spent') || b.contains('card')) return 'card';
+    if (b.contains('average balance') || b.contains('non-maintenance')) return 'fine';
+    return 'bank_sms';
   }
 }

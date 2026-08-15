@@ -17,3 +17,5 @@ class AddTransaction extends TransactionEvent {
   @override
   List<Object?> get props => [transaction];
 }
+
+class CategorizeTransactions extends TransactionEvent {}

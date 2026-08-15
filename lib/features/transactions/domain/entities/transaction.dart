@@ -12,7 +12,7 @@ class Transaction extends Equatable {
   final String source;
   final String? upiRefNumber;
   final String? rawSms;
-  final String? category;
+  final String? category; // Added for AI categorization
 
   const Transaction({
     this.id,

@@ -4,13 +4,16 @@ import 'package:mocktail/mocktail.dart';
 import 'package:rozz/features/transactions/domain/entities/transaction.dart';
 import 'package:rozz/features/transactions/domain/repositories/transaction_repository.dart';
 import 'package:rozz/features/transactions/presentation/bloc/transaction_bloc.dart';
+import 'package:rozz/core/services/gemini_service.dart';
 
 class MockTransactionRepository extends Mock implements TransactionRepository {}
+class MockGeminiService extends Mock implements GeminiService {}
 
 class FakeTransaction extends Fake implements Transaction {}
 
 void main() {
   late MockTransactionRepository mockRepository;
+  late MockGeminiService mockGeminiService;
   late TransactionBloc transactionBloc;
 
   setUpAll(() {
@@ -19,7 +22,8 @@ void main() {
 
   setUp(() {
     mockRepository = MockTransactionRepository();
-    transactionBloc = TransactionBloc(mockRepository);
+    mockGeminiService = MockGeminiService();
+    transactionBloc = TransactionBloc(mockRepository, mockGeminiService);
   });
 
   tearDown(() {

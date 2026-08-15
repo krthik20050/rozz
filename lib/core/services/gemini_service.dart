@@ -5,9 +5,24 @@ import 'package:rozz/core/security/secure_storage_service.dart';
 
 class GeminiService {
   static const String _baseUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
+  static final _upiRe = RegExp(r'\b[\w.+-]+@[\w.-]+\b');
+  static final _phoneRe = RegExp(r'\b\d{10}\b');
+  static final _refRe = RegExp(r'\b\d{10,}\b');
+  static final _balanceRe = RegExp(
+    r'\b(?:Avl\s*bal|Bal|balance)\b\s*:?\s*(?:Rs\.?|INR)?\s*[\d,]+(?:\.\d+)?',
+    caseSensitive: false,
+  );
   final SecureStorageService _secureStorage;
 
   GeminiService(this._secureStorage);
+
+  /// Strip PII (UPI ids, phone numbers, ref numbers, balances) before anything
+  /// leaves the device. Balance first — its commas hide it from the digit regexes.
+  String redact(String text) => text
+      .replaceAll(_balanceRe, '[balance]')
+      .replaceAll(_upiRe, '[upi]')
+      .replaceAll(_phoneRe, '[phone]')
+      .replaceAll(_refRe, '[ref]');
 
   Future<String?> categorizeTransaction(String narration, {int retries = 2}) async {
     for (int i = 0; i <= retries; i++) {
@@ -23,7 +38,7 @@ class GeminiService {
               {
                 'parts': [
                   {
-                    'text': 'Categorize this bank transaction narration into a single word category (e.g., Food, Transport, Shopping, Rent, Salary). Narration: $narration'
+                    'text': 'Categorize this bank transaction narration into a single word category (e.g., Food, Transport, Shopping, Rent, Salary). Narration: ${redact(narration)}'
                   }
                 ]
               }
@@ -56,7 +71,7 @@ class GeminiService {
         final apiKey = await _secureStorage.readValue('GEMINI_API_KEY');
         if (apiKey == null) return null;
 
-        final prompt = 'Analyze these recent transactions and give a 1-sentence financial tip: ${recentTransactions.join(", ")}';
+        final prompt = 'Analyze these recent transactions and give a 1-sentence financial tip: ${redact(recentTransactions.join(", "))}';
 
         final response = await http.post(
           Uri.parse('$_baseUrl?key=$apiKey'),
