@@ -96,7 +96,7 @@ class MabBloc extends Bloc<MabEvent, MabState> {
         year: event.year,
         now: now,
       );
-      emit(MabLoaded(status, records));
+      emit(MabLoaded(status, updatedRecords));
     } catch (e) {
       emit(MabError(e.toString()));
     }

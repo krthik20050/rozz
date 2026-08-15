@@ -15,7 +15,7 @@ class MabLoaded extends MabState {
   final MabStatus status;
   final List<MabRecord> records;
 
-  MabLoaded(this.status, [this.records = const []]);
+  const MabLoaded(this.status, [this.records = const []]) : super();
 
   @override
   List<Object?> get props => [status];

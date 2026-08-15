@@ -16,8 +16,7 @@ class MabLocalDatasourceImpl implements MabLocalDatasource {
 
   @override
   Future<void> insertEodBalance(MabRecordModel record) async {
-    final db = await _databaseHelper.database;
-    await _databaseHelper.write(() async {
+    await _databaseHelper.write((db) async {
       await db.insert(
         'mab_history',
         record.toMap(),
