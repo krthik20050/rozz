@@ -6,14 +6,18 @@ import 'package:rozz/features/mab/domain/entities/mab_status.dart';
 import 'package:rozz/features/mab/domain/repositories/mab_repository.dart';
 import 'package:rozz/features/mab/domain/usecases/calculate_mab.dart';
 import 'package:rozz/features/mab/presentation/bloc/mab_bloc.dart';
+import 'package:rozz/features/transactions/domain/entities/transaction.dart';
+import 'package:rozz/features/transactions/domain/repositories/transaction_repository.dart';
 
 class MockMabRepository extends Mock implements MabRepository {}
 class MockCalculateMab extends Mock implements CalculateMab {}
+class MockTransactionRepository extends Mock implements TransactionRepository {}
 class FakeMabRecord extends Fake implements MabRecord {}
 
 void main() {
   late MockMabRepository mockRepository;
   late MockCalculateMab mockCalculateMab;
+  late MockTransactionRepository mockTransactionRepository;
   late MabBloc mabBloc;
 
   setUpAll(() {
@@ -23,7 +27,12 @@ void main() {
   setUp(() {
     mockRepository = MockMabRepository();
     mockCalculateMab = MockCalculateMab();
-    mabBloc = MabBloc(mockRepository, mockCalculateMab);
+    mockTransactionRepository = MockTransactionRepository();
+    when(() => mockTransactionRepository.getAllTransactions())
+        .thenAnswer((_) async => <Transaction>[]);
+    when(() => mockTransactionRepository.getLastKnownBalance())
+        .thenAnswer((_) async => null);
+    mabBloc = MabBloc(mockRepository, mockCalculateMab, mockTransactionRepository);
   });
 
   tearDown(() {

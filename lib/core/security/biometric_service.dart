@@ -1,24 +1,30 @@
 import 'package:local_auth/local_auth.dart';
 
 class BiometricService {
-  final LocalAuthentication _auth = LocalAuthentication();
+  BiometricService({LocalAuthentication? auth}) : _auth = auth ?? LocalAuthentication();
+
+  final LocalAuthentication _auth;
+
+  Future<bool> isBiometricAvailable() async {
+    try {
+      return await _auth.canCheckBiometrics;
+    } catch (_) {
+      return false;
+    }
+  }
 
   Future<bool> authenticate() async {
     try {
-      final bool canAuthenticateWithBiometrics = await _auth.canCheckBiometrics;
-      final bool canAuthenticate = canAuthenticateWithBiometrics || await _auth.isDeviceSupported();
-
-      if (!canAuthenticate) return true; // No biometric/security - allow through as per requirement
-
+      final canCheck = await _auth.canCheckBiometrics;
+      if (!canCheck) return true;
       return await _auth.authenticate(
-        localizedReason: 'Verify it is you to open ROZZ',
+        localizedReason: 'Verify it\'s you to open ROZZ',
         options: const AuthenticationOptions(
           stickyAuth: true,
-          biometricOnly: false, // Allow PIN fallback
+          biometricOnly: false,
         ),
       );
-    } catch (e) {
-      // logError('Biometric failed', e);
+    } catch (_) {
       return false;
     }
   }

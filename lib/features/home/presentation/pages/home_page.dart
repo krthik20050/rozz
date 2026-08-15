@@ -13,7 +13,8 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 
 class HomePage extends StatelessWidget {
-  const HomePage({super.key});
+  final VoidCallback onSync;
+  const HomePage({super.key, required this.onSync});
 
   double _computeTodaySpend(List<Transaction> transactions) {
     final todayFormatter = DateFormat('yyyy-MM-dd');

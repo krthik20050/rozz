@@ -1,62 +1,35 @@
-import 'package:flutter_test/flutter_test.dart';
-import 'package:mocktail/mocktail.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:flutter_test/flutter_test.dart';
 import 'package:rozz/core/security/secure_storage_service.dart';
-
-class MockFlutterSecureStorage extends Mock implements FlutterSecureStorage {}
 
 void main() {
   late SecureStorageService service;
-  late MockFlutterSecureStorage mockStorage;
 
   setUp(() {
-    mockStorage = MockFlutterSecureStorage();
-    service = SecureStorageService(storage: mockStorage);
+    FlutterSecureStorage.setMockInitialValues({});
+    service = SecureStorageService();
   });
 
-  group('SecureStorageService Tests', () {
-    test('writeValue calls storage.write', () async {
-      when(() => mockStorage.write(key: any(named: 'key'), value: any(named: 'value')))
-          .thenAnswer((_) async => {});
+  test('writeValue then readValue round-trips', () async {
+    await service.writeValue('GEMINI_API_KEY', 'test-key');
+    expect(await service.readValue('GEMINI_API_KEY'), 'test-key');
+  });
 
-      await service.writeValue('test_key', 'test_value');
+  test('readValue returns null for missing key', () async {
+    expect(await service.readValue('missing'), isNull);
+  });
 
-      verify(() => mockStorage.write(key: 'test_key', value: 'test_value')).called(1);
-    });
+  test('deleteValue removes the key', () async {
+    await service.writeValue('k', 'v');
+    await service.deleteValue('k');
+    expect(await service.readValue('k'), isNull);
+  });
 
-    test('readValue returns value from storage.read', () async {
-      when(() => mockStorage.read(key: any(named: 'key')))
-          .thenAnswer((_) async => 'retrieved_value');
-
-      final result = await service.readValue('test_key');
-
-      expect(result, 'retrieved_value');
-      verify(() => mockStorage.read(key: 'test_key')).called(1);
-    });
-
-    test('deleteValue calls storage.delete', () async {
-      when(() => mockStorage.delete(key: any(named: 'key')))
-          .thenAnswer((_) async => {});
-
-      await service.deleteValue('test_key');
-
-      verify(() => mockStorage.delete(key: 'test_key')).called(1);
-    });
-
-    test('deleteAll calls storage.deleteAll', () async {
-      when(() => mockStorage.deleteAll())
-          .thenAnswer((_) async => {});
-
-      await service.deleteAll();
-
-      verify(() => mockStorage.deleteAll()).called(1);
-    });
-
-    test('writeValue throws exception on failure', () async {
-      when(() => mockStorage.write(key: any(named: 'key'), value: any(named: 'value')))
-          .thenThrow(Exception('Native Error'));
-
-      expect(() => service.writeValue('k', 'v'), throwsException);
-    });
+  test('deleteAll clears everything', () async {
+    await service.writeValue('k1', 'v1');
+    await service.writeValue('k2', 'v2');
+    await service.deleteAll();
+    expect(await service.readValue('k1'), isNull);
+    expect(await service.readValue('k2'), isNull);
   });
 }

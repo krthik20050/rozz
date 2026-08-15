@@ -106,10 +106,7 @@ class WorkmanagerService {
   static const String geminiSyncTask = "geminiSyncTask";
 
   static Future<void> initialize() async {
-    await Workmanager().initialize(
-      callbackDispatcher,
-      isInDebugMode: false,
-    );
+    await Workmanager().initialize(callbackDispatcher);
 
     // EOD balance update
     await Workmanager().registerPeriodicTask(

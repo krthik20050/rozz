@@ -1,48 +1,25 @@
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 class SecureStorageService {
+  SecureStorageService({FlutterSecureStorage? storage})
+      : _storage = storage ?? _defaultStorage;
+
+  static const _defaultStorage = FlutterSecureStorage(
+    aOptions: AndroidOptions(
+      encryptedSharedPreferences: true,
+      keyCipherAlgorithm: KeyCipherAlgorithm.RSA_ECB_OAEPwithSHA_256andMGF1Padding,
+      storageCipherAlgorithm: StorageCipherAlgorithm.AES_GCM_NoPadding,
+    ),
+  );
+
   final FlutterSecureStorage _storage;
 
-  SecureStorageService({FlutterSecureStorage? storage}) 
-    : _storage = storage ?? const FlutterSecureStorage(
-        aOptions: AndroidOptions(
-          encryptedSharedPreferences: true,
-        ),
-      );
+  Future<void> writeValue(String key, String value) =>
+      _storage.write(key: key, value: value);
 
-  /// Write sensitive value to Android Keystore
-  Future<void> writeValue(String key, String value) async {
-    try {
-      await _storage.write(key: key, value: value);
-    } catch (e) {
-      throw Exception('Security: Failed to write to keystore: ' + e.toString());
-    }
-  }
+  Future<String?> readValue(String key) => _storage.read(key: key);
 
-  /// Read sensitive value from Android Keystore
-  Future<String?> readValue(String key) async {
-    try {
-      return await _storage.read(key: key);
-    } catch (e) {
-      throw Exception('Security: Failed to read from keystore: ' + e.toString());
-    }
-  }
+  Future<void> deleteValue(String key) => _storage.delete(key: key);
 
-  /// Delete sensitive value
-  Future<void> deleteValue(String key) async {
-    try {
-      await _storage.delete(key: key);
-    } catch (e) {
-      throw Exception('Security: Failed to delete from keystore: ' + e.toString());
-    }
-  }
-
-  /// Clear all secure storage - use with caution
-  Future<void> deleteAll() async {
-    try {
-      await _storage.deleteAll();
-    } catch (e) {
-      throw Exception('Security: Failed to clear keystore: ' + e.toString());
-    }
-  }
+  Future<void> deleteAll() => _storage.deleteAll();
 }

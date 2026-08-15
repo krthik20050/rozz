@@ -1,12 +1,10 @@
-import 'dart:async';
-
 class AppLockService {
   static final AppLockService _instance = AppLockService._internal();
   factory AppLockService() => _instance;
   AppLockService._internal();
 
   DateTime? _backgroundedAt;
-  bool _isLocked = true; // Start locked on cold open
+  bool _isLocked = true;
 
   final Duration _lockTimeout = const Duration(minutes: 5);
 
@@ -22,6 +20,7 @@ class AppLockService {
       if (difference > _lockTimeout) {
         _isLocked = true;
       }
+      _backgroundedAt = null;
     }
   }
 
