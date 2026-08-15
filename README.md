@@ -12,7 +12,7 @@ ROZZ is a high-performance personal finance companion that bridges the gap betwe
 
 ## 🚀 Key Features
 
-- **Automated SMS Parsing:** Real-time extraction of transaction data from HDFC bank SMS using an embedded Node.js engine (`flutter_js`).
+- **Automated SMS Parsing:** Real-time extraction of transaction data from HDFC bank SMS via a native Dart parser (`features/transactions/data/datasources/sms_parser.dart`).
 - **MAB Guardian:** Live tracking of Monthly Average Balance with "Safe/Danger" zones and predictive daily requirements to avoid bank fines.
 - **AI Categorization:** Integrated Gemini 2.0 Flash API to automatically categorize transactions and provide financial insights.
 - **Security First:** Biometric authentication and Android Keystore integration for sensitive data, with `FLAG_SECURE` protection.
@@ -57,21 +57,8 @@ rozz_app/
    flutter run
    ```
 
-### Next.js Backend
-1. **Navigate to backend:**
-   ```bash
-   cd ../rozz_backend
-   ```
-2. **Install dependencies:**
-   ```bash
-   npm install
-   ```
-3. **Supabase Config:**
-   - Copy `.env.example` to `.env.local` and fill in your `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY`.
-4. **Start Development Server:**
-   ```bash
-   npm run dev
-   ```
+### Next.js Backend (planned, not in this repo)
+A Next.js + Supabase backend is referenced in the project docs but has not been scaffolded yet. This section will be filled in once it exists.
 
 ## 📸 Screenshots
 
@@ -85,8 +72,8 @@ rozz_app/
 ## 📈 Project Status
 **Status:** `Actively in Development`
 - [x] Phase 1: Premium UI & Architecture
-- [🔄] Phase 2: Logic & Automation (SMS Parsing, MAB Engine, AI Sync)
-- [ ] Phase 3: Cloud Sync & Insights
+- [x] Phase 2: Logic & Automation (SMS Parsing, MAB Engine, AI Sync) — 32/32 tests passing
+- [ ] Phase 3: Cloud Sync & Insights (Next.js/Supabase backend not yet scaffolded)
 
 ## 👤 Author
 **Karthik**
