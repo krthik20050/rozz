@@ -58,7 +58,10 @@ class MainActivity : FlutterActivity() {
             arrayOf(Telephony.Sms.Inbox.BODY, Telephony.Sms.Inbox.ADDRESS, Telephony.Sms.Inbox.DATE),
             "${Telephony.Sms.Inbox.ADDRESS} LIKE ?",
             arrayOf("%HDFC%"),
-            Telephony.Sms.Inbox.DEFAULT_SORT_ORDER
+            // Newest-first, bounded: shipping the whole inbox across the platform
+            // channel blocked the UI thread (ANR). Live capture is the primary path;
+            // backfill only needs the recent window.
+            "${Telephony.Sms.Inbox.DEFAULT_SORT_ORDER} LIMIT 1000"
         )
 
         cursor?.use {
@@ -86,6 +89,14 @@ class MainActivity : FlutterActivity() {
             WindowManager.LayoutParams.FLAG_SECURE,
             WindowManager.LayoutParams.FLAG_SECURE
         )
+        // Keep the process alive so SMS capture works in the background (MIUI
+        // blocks the notification-listener bind without the Autostart whitelist).
+        val captureIntent = Intent(this, SmsCaptureService::class.java)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(captureIntent)
+        } else {
+            startService(captureIntent)
+        }
     }
 
     companion object {

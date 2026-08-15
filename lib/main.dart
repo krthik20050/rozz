@@ -16,12 +16,10 @@ import 'package:rozz/features/mab/domain/usecases/calculate_mab.dart';
 import 'package:rozz/features/mab/presentation/bloc/mab_bloc.dart';
 import 'package:rozz/features/home/presentation/pages/home_page.dart';
 import 'package:rozz/features/mab/presentation/pages/mab_page.dart';
-import 'package:rozz/features/onboarding/presentation/pages/lock_screen.dart';
 import 'package:rozz/core/services/workmanager_service.dart';
 import 'package:rozz/core/services/transaction_sync_service.dart';
 import 'package:rozz/core/services/gemini_service.dart';
 import 'package:rozz/core/security/secure_storage_service.dart';
-import 'package:rozz/core/security/app_lock_service.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:rozz/core/theme/colors.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -79,9 +77,7 @@ class RozzApp extends StatefulWidget {
   State<RozzApp> createState() => _RozzAppState();
 }
 
-class _RozzAppState extends State<RozzApp> with WidgetsBindingObserver {
-  final _appLockService = AppLockService();
-  bool _isUnlocked = false;
+class _RozzAppState extends State<RozzApp> {
   bool _isSyncing = false;
   double _syncProgress = 0.0;
   String _syncStatus = "Initializing...";
@@ -90,7 +86,6 @@ class _RozzAppState extends State<RozzApp> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addObserver(this);
     _setupSmsListener();
     // Auto-start the workflow after initial frame
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -108,6 +103,13 @@ class _RozzAppState extends State<RozzApp> with WidgetsBindingObserver {
     var status = await Permission.sms.status;
     if (!status.isGranted) {
       status = await Permission.sms.request();
+    }
+
+    // Foreground-service notification (Android 13+): needed for the persistent
+    // "ROZZ is monitoring" notification that keeps background capture alive.
+    final notifStatus = await Permission.notification.status;
+    if (!notifStatus.isGranted) {
+      await Permission.notification.request();
     }
 
     if (status.isGranted) {
@@ -187,10 +189,12 @@ class _RozzAppState extends State<RozzApp> with WidgetsBindingObserver {
     try {
       final drained = await widget.syncService.backfillInbox();
       final fromInbox = await widget.syncService.drainRawInbox();
+      final pending = await widget.syncService.drainPendingSms();
 
       if (mounted) {
         setState(() {
-          _syncStatus = "Parsed $drained messages, drained $fromInbox pending...";
+          _syncStatus =
+              "Parsed $drained messages, drained $fromInbox + $pending pending...";
           _syncProgress = 0.9;
         });
         context.read<TransactionBloc>().add(LoadTransactions());
@@ -213,8 +217,8 @@ class _RozzAppState extends State<RozzApp> with WidgetsBindingObserver {
     if (!kIsWeb && Platform.isAndroid) {
       _channel.setMethodCallHandler((call) async {
         if (call.method == 'onSmsReceived') {
-          // Native already persisted the SMS to raw_inbox; drain parses + inserts.
-          final drained = await widget.syncService.drainRawInbox();
+          // Native already appended the SMS to the JSONL handoff; drain parses + inserts.
+          final drained = await widget.syncService.drainPendingSms();
           if (drained > 0 && mounted) {
             context.read<TransactionBloc>().add(LoadTransactions());
             final now = DateTime.now();
@@ -222,26 +226,6 @@ class _RozzAppState extends State<RozzApp> with WidgetsBindingObserver {
           }
         }
       });
-    }
-  }
-
-  @override
-  void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    super.dispose();
-  }
-
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.paused) {
-      _appLockService.onAppBackground();
-    } else if (state == AppLifecycleState.resumed) {
-      _appLockService.onAppForeground();
-      if (_appLockService.isLocked) {
-        setState(() {
-          _isUnlocked = false;
-        });
-      }
     }
   }
 
@@ -258,13 +242,7 @@ class _RozzAppState extends State<RozzApp> with WidgetsBindingObserver {
       ),
       home: _isSyncing
         ? _SyncLoadingPage(status: _syncStatus, progress: _syncProgress)
-        : (_isUnlocked
-            ? MainScaffold(onSync: syncInbox)
-            : LockScreen(onAuthenticated: () {
-                setState(() {
-                  _isUnlocked = true;
-                });
-              })),
+        : MainScaffold(onSync: syncInbox),
     );
   }
 }

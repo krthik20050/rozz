@@ -5,6 +5,7 @@ import 'package:rozz/features/home/presentation/widgets/balance_hero.dart';
 import 'package:rozz/features/onboarding/presentation/pages/settings_page.dart';
 import 'package:rozz/features/transactions/presentation/bloc/transaction_bloc.dart';
 import 'package:rozz/features/transactions/presentation/widgets/transaction_card.dart';
+import 'package:rozz/features/transactions/presentation/widgets/transaction_details_sheet.dart';
 import 'package:rozz/features/transactions/domain/entities/transaction.dart';
 import 'package:rozz/shared/widgets/shimmer_card.dart';
 import 'package:rozz/shared/widgets/empty_state.dart';
@@ -134,9 +135,10 @@ class HomePage extends StatelessWidget {
                         (context, index) {
                           return TransactionCard(
                             transaction: entry.value[index],
-                            onTap: () {
-                              // TODO: Navigate to details
-                            },
+                            onTap: () => TransactionDetailsSheet.show(
+                              context,
+                              entry.value[index],
+                            ),
                           );
                         },
                         childCount: entry.value.length,
