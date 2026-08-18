@@ -5,24 +5,6 @@ import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:rozz/core/security/secure_storage_service.dart';
 
-/// Cheap intent gate: does this question touch the user's finances? Decides
-/// whether the chat request includes the recent-transactions tier of context.
-/// ponytail: keyword heuristic — a rephrased money question may miss and the
-/// model then answers from the month summary alone (no transactions). An LLM
-/// intent classifier is the upgrade if that ever bites.
-bool isFinancialQuestion(String query) {
-  final q = query.toLowerCase();
-  const keywords = [
-    'spent', 'spend', 'spending', 'expense', 'expenses', 'cost', 'money',
-    'balance', 'saved', 'save', 'income', 'salary', 'credit', 'debit', 'upi',
-    'transaction', 'transactions', 'bank', 'food', 'rent', 'shopping', 'bought',
-    'buy', 'grocer', 'recharge', 'bill', 'bills', 'subscription', 'subscriptions',
-    'mab', 'emi', 'loan', 'category', 'month', 'received', 'paid', 'amount',
-    'charge', 'charges', 'merchant', 'recent',
-  ];
-  return keywords.any(q.contains);
-}
-
 /// AI service that auto-routes by key type:
 ///
 /// • `gsk_…` (GROQ, the primary provider) → GROQ's OpenAI-compatible
@@ -93,6 +75,60 @@ class AiService {
       .replaceAll(_upiRe, '[upi]')
       .replaceAll(_phoneRe, '[phone]')
       .replaceAll(_refRe, '[ref]');
+
+  /// Extracts assistant text deltas from OpenAI-compatible SSE chunk lines.
+  /// Skips keep-alives and the terminal `[DONE]` marker. Pure and
+  /// unit-testable without a network.
+  @visibleForTesting
+  static List<String> sseDeltas(Iterable<String> lines) {
+    final out = <String>[];
+    for (final line in lines) {
+      final trimmed = line.trim();
+      if (!trimmed.startsWith('data:')) continue;
+      final payload = trimmed.substring('data:'.length).trim();
+      if (payload.isEmpty || payload == '[DONE]') continue;
+      try {
+        final obj = jsonDecode(payload) as Map<String, dynamic>;
+        final choices = obj['choices'] as List<dynamic>?;
+        if (choices == null || choices.isEmpty) continue;
+        final delta = choices[0]['delta'];
+        if (delta is Map &&
+            delta['content'] is String &&
+            (delta['content'] as String).isNotEmpty) {
+          out.add(delta['content'] as String);
+        }
+      } catch (_) {
+        // Partial or malformed line mid-stream — skip it.
+      }
+    }
+    return out;
+  }
+
+  /// The chat's system prompt: current date (the model has no clock) plus the
+  /// formatting rules that replace the old guardrails — no em dashes, no
+  /// star bullets, prefer tables. Visible for testing.
+  @visibleForTesting
+  static String systemPromptFor(String today) =>
+      'Today is $today (device local time).\n'
+      'You are ROZZ, the assistant in a personal finance app. Be warm, '
+      'concise and direct.\n'
+      'A snapshot of the user\'s real finances, including their full '
+      'transaction history, may be included in the message. Use it to answer '
+      'finance questions accurately. For anything else, answer normally from '
+      'general knowledge.\n'
+      'Formatting rules:\n'
+      '- Never use em dashes (—). Use commas, colons or periods.\n'
+      '- Do not format lists with leading stars or asterisks. Use plain '
+      'sentences or short paragraphs.\n'
+      '- When comparing figures, listing items, or showing a breakdown, '
+      'prefer a markdown table with pipes and a header row over bullets.\n'
+      '- Keep answers short and skimmable. Bold key numbers.';
+
+  String _promptWithContext(String? context, String query) =>
+      context == null || context.isEmpty
+          ? query
+          : 'Here is a snapshot of the user\'s finances:\n$context\n\n'
+              'Question: $query';
 
   static const String noKeyMessage =
       'ROZZ\'s AI brain isn\'t configured yet. Add your API key — a free GROQ '
@@ -264,12 +300,11 @@ class AiService {
     return text;
   }
 
-  /// Answers a question with optional real context (a compact finance summary).
-  /// The system prompt carries the CURRENT date (the model otherwise infers
-  /// "today" from the newest transaction rows and answers wrong) plus the
-  /// panel-approved guardrails: context applies only to finance questions,
-  /// and the model must never invent figures. [history] carries prior chat
-  /// turns so follow-ups keep their context.
+  /// Answers a question with optional real context (a compact finance summary
+  /// and the user's full transaction history). The system prompt carries the
+  /// CURRENT date (the model otherwise infers "today" from the newest
+  /// transaction rows and answers wrong) plus the formatting rules. [history]
+  /// carries prior chat turns so follow-ups keep their context.
   Future<String> askFinancialAssistant(
     String query, {
     String? context,
@@ -296,30 +331,116 @@ class AiService {
     // Device-local date, injected fresh per request — the model has no clock.
     final now = DateTime.now();
     final today = DateFormat('d MMMM yyyy').format(now);
-    final systemPrompt = 'Today is $today (device local time).\n'
-        'You are ROZZ, the assistant in a personal finance app. Be friendly, '
-        'concise and direct.\n'
-        'A compact finance summary may be included in the user\'s message. It '
-        'is relevant ONLY to personal-finance questions — for all other '
-        'questions ignore it entirely and answer from general knowledge.\n'
-        'Never invent transactions, amounts, or dates not present in the '
-        'data. If the data cannot answer a finance question, say so.';
-
-    final prompt = context == null || context.isEmpty
-        ? query
-        : 'Here is a compact summary of the user\'s finances:\n$context\n\n'
-            'Question: $query';
 
     final reply = await _completion(
       apiKey,
-      prompt,
+      _promptWithContext(context, query),
       retryOnRateLimit: true,
-      systemPrompt: systemPrompt,
+      systemPrompt: systemPromptFor(today),
       history: history,
     );
     if (reply != null) return reply;
     return 'I couldn\'t reach my AI service right now (it may be rate-limited '
         'or out of credits). Try again in a moment.';
+  }
+
+  /// Streams a reply token-by-token (OpenAI-compatible SSE) for a
+  /// ChatGPT-style experience. GROQ and OpenRouter stream; Gemini falls back
+  /// to a single non-streaming call. Same routing, throttling, redaction and
+  /// system prompt as [askFinancialAssistant].
+  Stream<String> streamFinancialAssistant(
+    String query, {
+    String? context,
+    List<Map<String, String>> history = const [],
+  }) async* {
+    String? apiKey;
+    try {
+      apiKey = await _readKeyOrNull();
+    } catch (e) {
+      debugPrint('Key read failed: $e');
+    }
+    if (apiKey == null || apiKey.isEmpty) {
+      yield noKeyMessage;
+      return;
+    }
+
+    final provider = _providerFor(apiKey);
+    final sinceLast = DateTime.now().difference(_lastChatRequest);
+    if (sinceLast < chatMinGap) {
+      await Future<void>.delayed(chatMinGap - sinceLast);
+    }
+    _lastChatRequest = DateTime.now();
+
+    // Gemini has a different streaming wire format — fall back to the
+    // non-streaming path and emit the full answer at once.
+    if (provider == _AiProvider.gemini) {
+      yield await askFinancialAssistant(query, context: context, history: history);
+      return;
+    }
+
+    final now = DateTime.now();
+    final today = DateFormat('d MMMM yyyy').format(now);
+    final url = provider == _AiProvider.groq
+        ? Uri.parse(_groqUrl)
+        : Uri.parse(_openRouterUrl);
+    final model = provider == _AiProvider.groq
+        ? _groqChatModel
+        : _openRouterModel;
+    final body = jsonEncode({
+      'model': model,
+      'max_tokens': _maxTokens,
+      'stream': true,
+      'messages': [
+        {'role': 'system', 'content': systemPromptFor(today)},
+        ...history.map((m) => {
+              'role': m['role'],
+              'content': redact(m['content'] ?? ''),
+            }),
+        {'role': 'user', 'content': redact(_promptWithContext(context, query))},
+      ],
+    });
+
+    final request = http.Request('POST', url)
+      ..headers.addAll({
+        'Authorization': 'Bearer $apiKey',
+        'Content-Type': 'application/json',
+        'Accept': 'text/event-stream',
+      })
+      ..body = body;
+
+    http.StreamedResponse response;
+    try {
+      // 45s: free-tier cold starts on mobile routinely exceed 30s.
+      response = await request.send().timeout(const Duration(seconds: 45));
+    } catch (e) {
+      debugPrint('Chat stream failed: $e');
+      yield 'I couldn\'t reach my AI service right now. Try again in a moment.';
+      return;
+    }
+
+    // Invalid/revoked key — don't retry, tell the user it's the key.
+    if (response.statusCode == 401 || response.statusCode == 403) {
+      yield invalidKeyMessage;
+      return;
+    }
+    if (response.statusCode != 200) {
+      debugPrint('Chat stream status: ${response.statusCode}');
+      yield 'I couldn\'t reach my AI service right now (it may be rate-limited '
+          'or out of credits). Try again in a moment.';
+      return;
+    }
+
+    try {
+      await for (final line in response.stream
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())) {
+        for (final delta in sseDeltas([line])) {
+          yield delta;
+        }
+      }
+    } catch (e) {
+      debugPrint('Chat stream read failed: $e');
+    }
   }
 
   Future<String?> categorizeTransaction(String narration, {int retries = 2}) async {
