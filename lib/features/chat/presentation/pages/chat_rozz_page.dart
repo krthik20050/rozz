@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show ScrollDirection;
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
+import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
 import 'package:rozz/core/security/secure_storage_service.dart';
@@ -15,12 +18,14 @@ import 'package:rozz/features/transactions/domain/repositories/transaction_repos
 import 'package:rozz/shared/utils/merchant_brand_resolver.dart';
 import 'package:rozz/shared/utils/sender_label_resolver.dart';
 
-/// ROZZ AI chat. Answers from the user's real local data: actual transactions,
-/// the month's money in/out, category breakdown, subscriptions, upcoming
-/// charges, recurring income, sender labels and the MAB forecast are bundled
-/// into the prompt so the model reasons from facts, not guesses. Conversation
-/// history is carried along so follow-up questions keep their context. No fake
-/// seed messages, no hardcoded numbers.
+/// ROZZ AI chat, ChatGPT-style: replies stream in token by token, assistant
+/// answers render as rich markdown (tables supported), the composer docks at
+/// the bottom with a stop button while streaming, and suggestion chips offer
+/// a starting point on the empty state. The prompt carries the user's FULL
+/// local record: every transaction (not just a recent slice), the month
+/// summary, categories, income, subscriptions, upcoming charges and the MAB
+/// forecast, so the model can answer any question about the money. PII is
+/// still redacted before anything leaves the device.
 class ChatRozzPage extends StatefulWidget {
   final AiService aiService;
   final SecureStorageService secureStorage;
@@ -51,9 +56,22 @@ class _ChatRozzPageState extends State<ChatRozzPage> {
   /// not come back on every launch (memory-only flags made it a nag loop).
   static const _skipStorageKey = 'chat_skip';
 
+  static const _suggestions = [
+    'how much did I spend this month?',
+    'what\'s my MAB right now?',
+    'list my subscriptions',
+    'where does my money go?',
+  ];
+
   final TextEditingController _controller = TextEditingController();
   final TextEditingController _keyController = TextEditingController();
   final List<Map<String, String>> _messages = [];
+
+  /// Streaming state: the in-flight assistant reply, fed by
+  /// [AiService.streamFinancialAssistant], and its subscription (so the user
+  /// can stop mid-answer).
+  StreamSubscription<String>? _streamSub;
+  String? _streamingBuffer;
 
   bool _isTyping = false;
   bool _isSavingKey = false;
@@ -75,6 +93,7 @@ class _ChatRozzPageState extends State<ChatRozzPage> {
 
   @override
   void dispose() {
+    _streamSub?.cancel();
     _scrollController.dispose();
     super.dispose();
   }
@@ -149,12 +168,11 @@ class _ChatRozzPageState extends State<ChatRozzPage> {
     if (mounted) setState(() => _hasApiKey = true);
   }
 
-  /// Builds a COMPACT snapshot of the user's finances for the AI. The month
-  /// summary + MAB always go (panel: a finance question phrased unusually must
-  /// still find data — a missing summary is a wrong answer about money). The
-  /// transaction rows are the only part gated by intent: non-financial
-  /// questions ("what's the date?", "tell me a joke") never carry them, so
-  /// the user's whole history doesn't leave the device for small talk.
+  /// Builds a snapshot of the user's finances for the AI: the month summary,
+  /// MAB forecast, and the FULL transaction ledger (every row, newest first),
+  /// so the model can answer across months, not just about the current one.
+  /// PII (UPI ids, phones, refs, balances) is stripped by [AiService.redact]
+  /// when the request is assembled.
   Future<String> _buildContext(String query) async {
     final state = context.read<InsightsBloc>().state;
     if (state is! InsightsLoaded) return '';
@@ -199,31 +217,29 @@ class _ChatRozzPageState extends State<ChatRozzPage> {
       );
     }
 
-    // Transaction rows: only for questions that look financial.
-    if (isFinancialQuestion(query)) {
-      final txs = await widget.transactionRepository.getAllTransactions();
-      if (txs.isNotEmpty) {
-        lines.add('Recent transactions (newest first):');
-        for (final t in txs.take(15)) {
-          final dt = DateTime.parse(t.date).toLocal();
-          final brand = MerchantBrandResolver.resolve(
-            t.recipientName ?? '',
-            t.labelType,
-            t.direction,
-            rawSms: t.rawSms ?? '',
-          );
-          final senderLabel = resolveSenderLabel(
-            t.upiId ?? t.recipientName ?? '',
-            state.senderLabels,
-          );
-          final name = senderLabel ?? brand.name;
-          lines.add(
-            '- ${DateFormat('d MMM, h:mm a').format(dt)} | '
-            '${t.direction == 'debit' ? 'spent' : 'received'} '
-            '${currency.format(t.amount)} | $name'
-            '${t.category == null ? '' : ' | ${t.category}'}',
-          );
-        }
+    // Full ledger, every transaction, so the AI can answer about any month.
+    final txs = await widget.transactionRepository.getAllTransactions();
+    if (txs.isNotEmpty) {
+      lines.add('All transactions (newest first):');
+      for (final t in txs) {
+        final dt = DateTime.parse(t.date).toLocal();
+        final brand = MerchantBrandResolver.resolve(
+          t.recipientName ?? '',
+          t.labelType,
+          t.direction,
+          rawSms: t.rawSms ?? '',
+        );
+        final senderLabel = resolveSenderLabel(
+          t.upiId ?? t.recipientName ?? '',
+          state.senderLabels,
+        );
+        final name = senderLabel ?? brand.name;
+        lines.add(
+          '- ${DateFormat('d MMM yyyy, h:mm a').format(dt)} | '
+          '${t.direction == 'debit' ? 'spent' : 'received'} '
+          '${currency.format(t.amount)} | $name'
+          '${t.category == null ? '' : ' | ${t.category}'}',
+        );
       }
     }
 
@@ -232,7 +248,7 @@ class _ChatRozzPageState extends State<ChatRozzPage> {
 
   Future<void> _sendMessage() async {
     final text = _controller.text.trim();
-    if (text.isEmpty) return;
+    if (text.isEmpty || _isTyping) return;
 
     _controller.clear();
     setState(() {
@@ -242,6 +258,7 @@ class _ChatRozzPageState extends State<ChatRozzPage> {
         'time': 'Just now',
       });
       _isTyping = true;
+      _streamingBuffer = '';
     });
     _scrollToBottomIfSticky();
 
@@ -258,30 +275,67 @@ class _ChatRozzPageState extends State<ChatRozzPage> {
             })
         .toList();
 
-    String reply;
     try {
-      reply = await widget.aiService.askFinancialAssistant(
-        text,
-        context: await _buildContext(text),
-        history: history,
+      _streamSub = widget.aiService
+          .streamFinancialAssistant(
+            text,
+            context: await _buildContext(text),
+            history: history,
+          )
+          .listen(
+        (delta) {
+          if (!mounted) return;
+          setState(() => _streamingBuffer = (_streamingBuffer ?? '') + delta);
+          _scrollToBottomIfSticky();
+        },
+        onError: (Object e) {
+          debugPrint('Chat stream error: $e');
+          _finishStreaming('Something went wrong while asking ROZZ — check '
+              'your key in settings and try again.');
+        },
+        onDone: () => _finishStreaming(),
       );
     } catch (e) {
       // A storage or provider error must not leave the typing bubble up
       // forever — surface it as a message instead.
       debugPrint('Chat request failed: $e');
-      reply = 'Something went wrong while asking ROZZ — check your key in '
-          'settings and try again.';
+      _finishStreaming('Something went wrong while asking ROZZ — check your '
+          'key in settings and try again.');
     }
+  }
+
+  /// Finalizes the in-flight reply: moves the accumulated streamed text into
+  /// the message list (or uses [fallback] when the stream produced nothing).
+  void _finishStreaming([String? fallback]) {
     if (!mounted) return;
+    final buffer = _streamingBuffer ?? '';
+    final text = buffer.trim().isNotEmpty ? buffer.trim() : (fallback ?? '');
     setState(() {
-      _messages.add({
-        'sender': 'rozz',
-        'text': reply,
-        'time': 'Just now',
-      });
+      if (text.isNotEmpty) {
+        _messages.add({
+          'sender': 'rozz',
+          'text': text,
+          'time': 'Just now',
+        });
+      }
       _isTyping = false;
+      _streamingBuffer = null;
+      _streamSub?.cancel();
+      _streamSub = null;
     });
     _scrollToBottomIfSticky();
+  }
+
+  /// Stops the in-flight answer and keeps whatever has streamed so far.
+  void _stopStreaming() {
+    _streamSub?.cancel();
+    _streamSub = null;
+    _finishStreaming();
+  }
+
+  void _sendSuggestion(String suggestion) {
+    _controller.text = suggestion;
+    _sendMessage();
   }
 
   /// Jumps to the newest message after an append — but only if the user
@@ -316,9 +370,9 @@ class _ChatRozzPageState extends State<ChatRozzPage> {
             const Icon(Icons.auto_awesome, color: RozzColors.gold, size: 18),
             const SizedBox(width: 8),
             Text(
-              'CHAT WITH ROZZ',
-              style: GoogleFonts.dmSans(
-                fontSize: 13,
+              'ROZZ',
+              style: GoogleFonts.syne(
+                fontSize: 15,
                 fontWeight: FontWeight.bold,
                 color: RozzColors.textPrimary,
                 letterSpacing: 1.2,
@@ -341,88 +395,122 @@ class _ChatRozzPageState extends State<ChatRozzPage> {
         ],
       ),
       body: SafeArea(
-        child: Column(
-          children: [
-            // Messages List (typing bubble lives inside it so scrolling
-            // follows it naturally).
-            Expanded(
-              child: _messages.isEmpty
-                  ? (_hasApiKey == false ? _buildKeySetup() : _buildEmptyChat())
-                  : NotificationListener<UserScrollNotification>(
-                      onNotification: (n) {
-                        if (n.direction == ScrollDirection.reverse) {
-                          _stickToBottom = false;
-                        } else if (n.direction == ScrollDirection.forward &&
-                            _scrollController.position.pixels >=
-                                _scrollController.position.maxScrollExtent - 24) {
-                          _stickToBottom = true;
-                        }
-                        return false;
-                      },
-                      child: ListView.builder(
-                        controller: _scrollController,
-                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                        itemCount: _messages.length + (_isTyping ? 1 : 0),
-                        itemBuilder: (context, index) {
-                          if (index == _messages.length) return const _TypingBubble();
-                          final msg = _messages[index];
-                          final isUser = msg['sender'] == 'user';
-                          return _buildChatBubble(msg['text']!, isUser, msg['time']!);
-                        },
-                      ),
-                    ),
-            ),
+        // ChatGPT-style: a narrow centered column so long lines stay readable.
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 640),
+            child: Column(
+              children: [
+                Expanded(
+                  child: _messages.isEmpty
+                      ? (_hasApiKey == false ? _buildKeySetup() : _buildEmptyChat())
+                      : NotificationListener<UserScrollNotification>(
+                          onNotification: (n) {
+                            if (n.direction == ScrollDirection.reverse) {
+                              _stickToBottom = false;
+                            } else if (n.direction == ScrollDirection.forward &&
+                                _scrollController.position.pixels >=
+                                    _scrollController.position.maxScrollExtent - 24) {
+                              _stickToBottom = true;
+                            }
+                            return false;
+                          },
+                          child: ListView.builder(
+                            controller: _scrollController,
+                            padding: const EdgeInsets.fromLTRB(20, 16, 20, 12),
+                            itemCount: _messages.length + (_isTyping ? 1 : 0),
+                            itemBuilder: (context, index) {
+                              if (index == _messages.length) {
+                                return (_streamingBuffer ?? '').isEmpty
+                                    ? const _TypingBubble()
+                                    : _buildStreamingBubble();
+                              }
+                              final msg = _messages[index];
+                              final isUser = msg['sender'] == 'user';
+                              return _buildChatBubble(msg['text']!, isUser);
+                            },
+                          ),
+                        ),
+                ),
 
-            // Input Bar
-            Padding(
-              padding: const EdgeInsets.fromLTRB(24, 8, 24, 16),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                decoration: BoxDecoration(
-                  color: RozzColors.s1,
-                  borderRadius: BorderRadius.circular(30),
-                  border: Border.all(color: RozzColors.gold.withOpacity(0.5)),
-                  boxShadow: [
-                    BoxShadow(
-                      color: RozzColors.gold.withOpacity(0.15),
-                      blurRadius: 12,
-                      offset: const Offset(0, 4),
+                // Suggestion chips: a nudge on the first message only.
+                if (_messages.isEmpty && _hasApiKey != false)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
+                    child: Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      alignment: WrapAlignment.center,
+                      children: [
+                        for (final s in _suggestions)
+                          _SuggestionChip(label: s, onTap: () => _sendSuggestion(s)),
+                      ],
                     ),
-                  ],
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.search, color: RozzColors.textSecondary, size: 20),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: TextField(
-                        controller: _controller,
-                        style: GoogleFonts.dmSans(color: RozzColors.textPrimary, fontSize: 14),
-                        decoration: InputDecoration(
-                          hintText: 'ask anything...',
-                          hintStyle: GoogleFonts.dmSans(color: RozzColors.textSecondary, fontSize: 14),
-                          border: InputBorder.none,
+                  ),
+
+                // Docked composer (stop button replaces send while streaming).
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 4, 20, 16),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: RozzColors.s1,
+                      borderRadius: BorderRadius.circular(24),
+                      border: Border.all(color: RozzColors.cardBorder),
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: _controller,
+                            minLines: 1,
+                            maxLines: 5,
+                            textCapitalization: TextCapitalization.sentences,
+                            style: GoogleFonts.dmSans(
+                              color: RozzColors.textPrimary,
+                              fontSize: 14,
+                            ),
+                            decoration: InputDecoration(
+                              hintText: 'ask anything about your money...',
+                              hintStyle: GoogleFonts.dmSans(
+                                color: RozzColors.textMuted,
+                                fontSize: 14,
+                              ),
+                              border: InputBorder.none,
+                              contentPadding:
+                                  const EdgeInsets.symmetric(vertical: 10),
+                            ),
+                            onSubmitted: (_) => _sendMessage(),
+                          ),
                         ),
-                        onSubmitted: (_) => _sendMessage(),
-                      ),
-                    ),
-                    GestureDetector(
-                      onTap: _sendMessage,
-                      child: Container(
-                        width: 36,
-                        height: 36,
-                        decoration: BoxDecoration(
-                          color: RozzColors.gold,
-                          shape: BoxShape.circle,
+                        const SizedBox(width: 8),
+                        GestureDetector(
+                          onTap: _isTyping ? _stopStreaming : _sendMessage,
+                          child: Container(
+                            width: 36,
+                            height: 36,
+                            decoration: BoxDecoration(
+                              color: _isTyping ? RozzColors.s2 : RozzColors.gold,
+                              shape: BoxShape.circle,
+                              border: _isTyping
+                                  ? Border.all(color: RozzColors.expense)
+                                  : null,
+                            ),
+                            child: Icon(
+                              _isTyping ? Icons.stop_rounded : Icons.arrow_upward,
+                              color: _isTyping ? RozzColors.expense : Colors.black,
+                              size: 20,
+                            ),
+                          ),
                         ),
-                        child: const Icon(Icons.arrow_upward, color: Colors.black, size: 20),
-                      ),
+                      ],
                     ),
-                  ],
+                  ),
                 ),
-              ),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );
@@ -459,7 +547,7 @@ class _ChatRozzPageState extends State<ChatRozzPage> {
           Text(
             'paste a free GROQ key (gsk_... from console.groq.com) or an '
             'OpenRouter key (sk-or-...) — it stays on your phone and answers '
-            'only from your own data.',
+            'from your own data.',
             textAlign: TextAlign.center,
             style: GoogleFonts.dmSans(
               fontSize: 13,
@@ -518,49 +606,246 @@ class _ChatRozzPageState extends State<ChatRozzPage> {
 
   Widget _buildEmptyChat() {
     return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 24),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Icon(Icons.auto_awesome, color: RozzColors.gold, size: 40),
+            const SizedBox(height: 16),
+            Text(
+              'How can I help with your money today?',
+              textAlign: TextAlign.center,
+              style: GoogleFonts.syne(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+                color: RozzColors.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'I read your full on-device records, so ask me about any month.',
+              textAlign: TextAlign.center,
+              style: GoogleFonts.dmSans(
+                fontSize: 13,
+                height: 1.5,
+                color: RozzColors.textSecondary,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// The in-flight assistant reply: raw streamed text with a blinking caret
+  /// (ChatGPT shows the markdown being typed; tables snap in on completion).
+  Widget _buildStreamingBubble() {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-          const Icon(Icons.chat_bubble_outline, color: RozzColors.textMuted, size: 40),
-          const SizedBox(height: 12),
-          Text(
-            'ask me anything — finance questions read your on-device records.',
-            textAlign: TextAlign.center,
-            style: GoogleFonts.dmSans(
-              fontSize: 13,
-              color: RozzColors.textSecondary,
+          Flexible(
+            child: Text(
+              _streamingBuffer ?? '',
+              style: GoogleFonts.dmSans(
+                fontSize: 14,
+                height: 1.5,
+                color: RozzColors.textPrimary,
+              ),
             ),
           ),
+          const _BlinkingCaret(),
         ],
       ),
     );
   }
 
-  Widget _buildChatBubble(String text, bool isUser, String time) {
-    return Align(
-      alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 16),
-        constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.8),
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: isUser ? RozzColors.s2 : RozzColors.s1,
-          borderRadius: BorderRadius.only(
-            topLeft: const Radius.circular(20),
-            topRight: const Radius.circular(20),
-            bottomLeft: Radius.circular(isUser ? 20 : 4),
-            bottomRight: Radius.circular(isUser ? 4 : 20),
+  /// User messages sit right in a soft bubble; assistant answers are plain,
+  /// full-width markdown (tables, bold, code) with a copy button beneath.
+  Widget _buildChatBubble(String text, bool isUser) {
+    if (isUser) {
+      return Align(
+        alignment: Alignment.centerRight,
+        child: Container(
+          margin: const EdgeInsets.only(bottom: 12),
+          constraints: BoxConstraints(
+            maxWidth: MediaQuery.of(context).size.width * 0.82,
           ),
-          border: Border.all(
-            color: isUser ? RozzColors.cardBorder : RozzColors.gold.withOpacity(0.3),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          decoration: BoxDecoration(
+            color: RozzColors.s2,
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Text(
+            text,
+            style: GoogleFonts.dmSans(
+              fontSize: 14,
+              height: 1.4,
+              color: RozzColors.textPrimary,
+            ),
           ),
         ),
+      );
+    }
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          MarkdownBody(
+            data: text,
+            styleSheet: _mdStyle(),
+          ),
+          const SizedBox(height: 6),
+          _CopyButton(text: text),
+        ],
+      ),
+    );
+  }
+
+  MarkdownStyleSheet _mdStyle() {
+    final base = MarkdownStyleSheet.fromTheme(
+      ThemeData(
+        brightness: Brightness.dark,
+        scaffoldBackgroundColor: RozzColors.bg,
+        textTheme: GoogleFonts.dmSansTextTheme(ThemeData.dark().textTheme),
+      ),
+    );
+    return base.copyWith(
+      p: GoogleFonts.dmSans(
+        fontSize: 14,
+        height: 1.55,
+        color: RozzColors.textPrimary,
+      ),
+      strong: GoogleFonts.dmSans(
+        fontSize: 14,
+        height: 1.55,
+        fontWeight: FontWeight.bold,
+        color: RozzColors.goldLight,
+      ),
+      em: GoogleFonts.dmSans(
+        fontSize: 14,
+        fontStyle: FontStyle.italic,
+        color: RozzColors.textSecondary,
+      ),
+      h1: GoogleFonts.syne(
+        fontSize: 17,
+        fontWeight: FontWeight.bold,
+        color: RozzColors.textPrimary,
+      ),
+      h2: GoogleFonts.syne(
+        fontSize: 15,
+        fontWeight: FontWeight.bold,
+        color: RozzColors.textPrimary,
+      ),
+      h3: GoogleFonts.syne(
+        fontSize: 14,
+        fontWeight: FontWeight.bold,
+        color: RozzColors.textPrimary,
+      ),
+      listBullet: GoogleFonts.dmSans(
+        fontSize: 14,
+        color: RozzColors.textPrimary,
+      ),
+      blockquote: GoogleFonts.dmSans(
+        fontSize: 13,
+        fontStyle: FontStyle.italic,
+        color: RozzColors.textSecondary,
+      ),
+      blockquoteDecoration: BoxDecoration(
+        color: RozzColors.s1,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      code: GoogleFonts.dmMono(
+        fontSize: 13,
+        color: RozzColors.goldLight,
+      ),
+      codeblockPadding: const EdgeInsets.all(12),
+      codeblockDecoration: BoxDecoration(
+        color: RozzColors.s1,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      tableHead: GoogleFonts.dmSans(
+        fontSize: 13,
+        fontWeight: FontWeight.bold,
+        color: RozzColors.goldLight,
+      ),
+      tableBody: GoogleFonts.dmSans(
+        fontSize: 13,
+        height: 1.4,
+        color: RozzColors.textPrimary,
+      ),
+      tableCellsPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      tableBorder: TableBorder.all(color: RozzColors.s3, width: 1),
+    );
+  }
+}
+
+/// ChatGPT-style blinking caret at the end of the streamed reply.
+class _BlinkingCaret extends StatefulWidget {
+  const _BlinkingCaret();
+
+  @override
+  State<_BlinkingCaret> createState() => _BlinkingCaretState();
+}
+
+class _BlinkingCaretState extends State<_BlinkingCaret>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 700),
+  )..repeat(reverse: true);
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FadeTransition(
+      opacity: Tween(begin: 1.0, end: 0.15).animate(_controller),
+      child: const Padding(
+        padding: EdgeInsets.only(left: 4, bottom: 2),
         child: Text(
-          text,
-          style: GoogleFonts.dmSans(
-            fontSize: 14,
-            color: RozzColors.textPrimary,
-            height: 1.4,
+          '▌',
+          style: TextStyle(color: RozzColors.gold, fontSize: 14),
+        ),
+      ),
+    );
+  }
+}
+
+/// Tappable suggestion that fills and sends the composer.
+class _SuggestionChip extends StatelessWidget {
+  final String label;
+  final VoidCallback onTap;
+
+  const _SuggestionChip({required this.label, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: RozzColors.s1,
+      borderRadius: BorderRadius.circular(20),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(20),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: RozzColors.cardBorder),
+          ),
+          child: Text(
+            label,
+            style: GoogleFonts.dmSans(
+              fontSize: 12,
+              color: RozzColors.textSecondary,
+            ),
           ),
         ),
       ),
@@ -568,9 +853,34 @@ class _ChatRozzPageState extends State<ChatRozzPage> {
   }
 }
 
+/// Copies the assistant answer to the clipboard.
+class _CopyButton extends StatelessWidget {
+  final String text;
+
+  const _CopyButton({required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: () => Clipboard.setData(ClipboardData(text: text)),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.copy_rounded, size: 13, color: RozzColors.textMuted),
+          const SizedBox(width: 4),
+          Text(
+            'copy',
+            style: GoogleFonts.dmSans(fontSize: 11, color: RozzColors.textMuted),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 /// ChatGPT-style thinking indicator: an assistant-styled bubble (same colors
 /// as real answers) with three bouncing dots. Renders in place of the answer
-/// while the request is in flight.
+/// while the first streamed token is still on its way.
 class _TypingBubble extends StatefulWidget {
   const _TypingBubble();
 
@@ -593,51 +903,37 @@ class _TypingBubbleState extends State<_TypingBubble>
 
   @override
   Widget build(BuildContext context) {
-    return Align(
-      alignment: Alignment.centerLeft,
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 16),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        decoration: BoxDecoration(
-          color: RozzColors.s1,
-          borderRadius: const BorderRadius.only(
-            topLeft: Radius.circular(20),
-            topRight: Radius.circular(20),
-            bottomLeft: Radius.circular(4),
-            bottomRight: Radius.circular(20),
-          ),
-          border: Border.all(color: RozzColors.gold.withValues(alpha: 0.3)),
-        ),
-        child: AnimatedBuilder(
-          animation: _controller,
-          builder: (context, _) {
-            return Row(
-              mainAxisSize: MainAxisSize.min,
-              children: List.generate(3, (i) {
-                // Staggered bounce: each dot peaks ~1/3 of a cycle apart.
-                final t = (_controller.value - i * 0.25) % 1.0;
-                final curve = Curves.easeInOut.transform(t);
-                return Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 3),
-                  child: Opacity(
-                    opacity: 0.25 + 0.75 * curve,
-                    child: Transform.translate(
-                      offset: Offset(0, -3 * curve),
-                      child: Container(
-                        width: 6,
-                        height: 6,
-                        decoration: const BoxDecoration(
-                          color: RozzColors.gold,
-                          shape: BoxShape.circle,
-                        ),
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: AnimatedBuilder(
+        animation: _controller,
+        builder: (context, _) {
+          return Row(
+            mainAxisSize: MainAxisSize.min,
+            children: List.generate(3, (i) {
+              // Staggered bounce: each dot peaks ~1/3 of a cycle apart.
+              final t = (_controller.value - i * 0.25) % 1.0;
+              final curve = Curves.easeInOut.transform(t);
+              return Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 3),
+                child: Opacity(
+                  opacity: 0.25 + 0.75 * curve,
+                  child: Transform.translate(
+                    offset: Offset(0, -3 * curve),
+                    child: Container(
+                      width: 6,
+                      height: 6,
+                      decoration: const BoxDecoration(
+                        color: RozzColors.gold,
+                        shape: BoxShape.circle,
                       ),
                     ),
                   ),
-                );
-              }),
-            );
-          },
-        ),
+                ),
+              );
+            }),
+          );
+        },
       ),
     );
   }

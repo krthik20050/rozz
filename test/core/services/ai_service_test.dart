@@ -21,18 +21,33 @@ void main() {
     expect(service.redact(sms), contains('340.00'));
   });
 
-  test('isFinancialQuestion flags money questions', () {
-    expect(isFinancialQuestion('how much did i spend on food this month'), isTrue);
-    expect(isFinancialQuestion('what is my balance'), isTrue);
-    expect(isFinancialQuestion('tell me about my salary and income'), isTrue);
-    expect(isFinancialQuestion('any subscriptions or emi coming up'), isTrue);
-    expect(isFinancialQuestion('show recent transactions'), isTrue);
+  test('sseDeltas extracts content, skips keep-alives and [DONE]', () {
+    const lines = [
+      'data: {"choices":[{"delta":{"role":"assistant","content":""}}]}',
+      'data: {"choices":[{"delta":{"content":"Here"}}]}',
+      ': keep-alive',
+      'data: {"choices":[{"delta":{"content":" is "}}]}',
+      '',
+      'data: {"choices":[{"delta":{"content":"a table"}}]}',
+      'data: {"choices":[{"delta":{"content":"..."}}]}',
+      'data: [DONE]',
+      'garbage line',
+    ];
+    expect(AiService.sseDeltas(lines), ['Here', ' is ', 'a table', '...']);
   });
 
-  test('isFinancialQuestion leaves general chit-chat alone', () {
-    expect(isFinancialQuestion('what is the date today'), isFalse);
-    expect(isFinancialQuestion('tell me a joke'), isFalse);
-    expect(isFinancialQuestion('who wrote the odyssey'), isFalse);
-    expect(isFinancialQuestion('what is 2+2'), isFalse);
+  test('sseDeltas tolerates malformed payloads mid-stream', () {
+    expect(AiService.sseDeltas(['data: not-json', 'data: {"choices":[]}']), isEmpty);
+  });
+
+  test('system prompt carries the date and formatting rules, no guardrails', () {
+    final prompt = AiService.systemPromptFor('18 August 2026');
+    expect(prompt, contains('18 August 2026'));
+    expect(prompt, contains('em dashes'));
+    expect(prompt, contains('markdown table'));
+    // The old "AI's law" guardrails are gone.
+    expect(prompt, isNot(contains('Never invent')));
+    expect(prompt, isNot(contains('relevant ONLY')));
+    expect(prompt, isNot(contains('ignore it entirely')));
   });
 }
