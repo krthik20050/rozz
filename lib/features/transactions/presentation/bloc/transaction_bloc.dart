@@ -2,16 +2,16 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:equatable/equatable.dart';
 import 'package:rozz/features/transactions/domain/entities/transaction.dart';
 import 'package:rozz/features/transactions/domain/repositories/transaction_repository.dart';
-import 'package:rozz/core/services/gemini_service.dart';
+import 'package:rozz/core/services/ai_service.dart';
 
 part 'transaction_event.dart';
 part 'transaction_state.dart';
 
 class TransactionBloc extends Bloc<TransactionEvent, TransactionState> {
   final TransactionRepository _repository;
-  final GeminiService _geminiService;
+  final AiService _aiService;
 
-  TransactionBloc(this._repository, this._geminiService) : super(TransactionInitial()) {
+  TransactionBloc(this._repository, this._aiService) : super(TransactionInitial()) {
     on<LoadTransactions>(_onLoadTransactions);
     on<AddTransaction>(_onAddTransaction);
     on<CategorizeTransactions>(_onCategorizeTransactions);
@@ -41,11 +41,12 @@ class TransactionBloc extends Bloc<TransactionEvent, TransactionState> {
       }
 
       emit(TransactionLoaded(transactions, balance));
-      
-      // Auto-trigger categorization for uncategorized transactions
-      if (transactions.any((tx) => tx.category == null)) {
-        add(CategorizeTransactions());
-      }
+
+      // Note: AI auto-categorization is intentionally NOT fired here. On
+      // the free tier a sync of hundreds of transactions burns the whole
+      // rate limit in seconds (starving the chat). Categories already come
+      // from the deterministic local brand resolver (MerchantBrandResolver)
+      // everywhere in the UI — the AI pass was redundant quota spending.
     } catch (e) {
       emit(TransactionError(e.toString()));
     }
@@ -72,7 +73,7 @@ class TransactionBloc extends Bloc<TransactionEvent, TransactionState> {
 
     final uncategorized = currentState.transactions.where((tx) => tx.category == null).toList();
     if (uncategorized.isEmpty) return;
-    // ponytail: cap per cycle — a 500-SMS backfill must not fire 500 Gemini calls
+    // ponytail: cap per cycle — a 500-SMS backfill must not fire 500 AI calls
     // at once; the rest get categorized on subsequent load cycles.
     final batch = uncategorized.take(30).toList();
 
@@ -80,7 +81,7 @@ class TransactionBloc extends Bloc<TransactionEvent, TransactionState> {
     for (var tx in batch) {
       try {
         final narration = tx.recipientName ?? tx.rawSms ?? 'Unknown';
-        final category = await _geminiService.categorizeTransaction(narration);
+        final category = await _aiService.categorizeTransaction(narration);
         
         if (category != null) {
           final updatedTx = Transaction(
@@ -107,7 +108,7 @@ class TransactionBloc extends Bloc<TransactionEvent, TransactionState> {
       }
     }
     
-    // Only reload if something changed — otherwise a Gemini failure would loop forever.
+    // Only reload if something changed — otherwise an AI failure would loop forever.
     if (savedAny) add(LoadTransactions());
   }
 }

@@ -15,6 +15,12 @@ class TransactionRepositoryImpl implements TransactionRepository {
   }
 
   @override
+  Future<List<Transaction>> getTransactionsByMonth(int month, int year) async {
+    final models = await _localDatasource.getTransactionsByMonth(month, year);
+    return models; // TransactionModel extends Transaction
+  }
+
+  @override
   Future<void> saveTransaction(Transaction transaction) async {
 final model = TransactionModel(
       id: transaction.id,

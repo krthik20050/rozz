@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:rozz/core/security/secure_storage_service.dart';
+import 'package:rozz/core/services/ai_service.dart';
 import 'package:rozz/core/theme/colors.dart';
 import 'package:google_fonts/google_fonts.dart';
 
@@ -25,11 +27,16 @@ class _SettingsPageState extends State<SettingsPage> {
 
   Future<void> _loadCurrentKey() async {
     try {
-      final key = await _secureStorage.readValue('GEMINI_API_KEY');
-      if (key != null && key.isNotEmpty) {
+      var key = await _secureStorage.readValue(AiService.apiKeyStorageKey);
+      if (key == null || key.isEmpty) {
+        // Legacy key from older builds — surface it; AiService migrates on read.
+        key = await _secureStorage.readValue(AiService.legacyApiKeyStorageKey);
+      }
+      final storedKey = key;
+      if (storedKey != null && storedKey.isNotEmpty) {
         setState(() {
           _keyExists = true;
-          _apiKeyController.text = key;
+          _apiKeyController.text = storedKey;
         });
       }
     } catch (e) {
@@ -46,9 +53,9 @@ class _SettingsPageState extends State<SettingsPage> {
     }
     setState(() => _isSaving = true);
     try {
-      await _secureStorage.writeValue('GEMINI_API_KEY', key);
+      await _secureStorage.writeValue(AiService.apiKeyStorageKey, key);
       setState(() => _keyExists = true);
-      _showSnackbar('Gemini API key saved ✓');
+      _showSnackbar('API key saved ✓');
     } catch (e) {
       _showSnackbar('Failed to save key: $e', isError: true);
     } finally {
@@ -57,10 +64,37 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   Future<void> _clearKey() async {
-    await _secureStorage.deleteValue('GEMINI_API_KEY');
-    _apiKeyController.clear();
-    setState(() => _keyExists = false);
-    _showSnackbar('API key removed.');
+    try {
+      await _secureStorage.deleteValue(AiService.apiKeyStorageKey);
+      // Legacy key too — clearing must remove both names.
+      await _secureStorage.deleteValue(AiService.legacyApiKeyStorageKey);
+      _apiKeyController.clear();
+      setState(() => _keyExists = false);
+      _showSnackbar('API key removed.');
+    } catch (e) {
+      _showSnackbar('Failed to clear key: $e', isError: true);
+    }
+  }
+
+  Future<void> _grantFullInboxAccess() async {
+    const channel = MethodChannel('com.rozz/sms');
+    try {
+      final alreadyGranted = await channel.invokeMethod<bool>('isDefaultSmsHandler') ?? false;
+      if (alreadyGranted) {
+        _showSnackbar('Full inbox access already granted ✓');
+        return;
+      }
+      await channel.invokeMethod<void>('requestDefaultSmsRole');
+      final granted = await channel.invokeMethod<bool>('isDefaultSmsHandler') ?? false;
+      _showSnackbar(
+        granted
+            ? 'Full inbox access granted ✓'
+            : 'Not granted — you can enable it later from Android settings.',
+        isError: !granted,
+      );
+    } catch (e) {
+      _showSnackbar('Failed to grant inbox access: $e', isError: true);
+    }
   }
 
   void _showSnackbar(String message, {bool isError = false}) {
@@ -103,12 +137,12 @@ class _SettingsPageState extends State<SettingsPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _buildSectionHeader('AI CATEGORIZATION'),
+            _buildSectionHeader('AI ASSISTANT'),
             const SizedBox(height: 16),
             _buildInfoCard(
-              'Gemini API Key',
-              'Required for automatic transaction categorization and financial insights. '
-              'Get a free key from Google AI Studio (aistudio.google.com).',
+              'API Key',
+              'Required for the AI chat, automatic transaction categorization and financial '
+              'insights. Get a free key from Groq (console.groq.com).',
             ),
             const SizedBox(height: 16),
             _buildApiKeyField(),
@@ -133,12 +167,20 @@ class _SettingsPageState extends State<SettingsPage> {
               ],
             ),
             const SizedBox(height: 32),
-            _buildSectionHeader('SECURITY'),
+            _buildSectionHeader('SMS ACCESS'),
             const SizedBox(height: 16),
             _buildInfoCard(
-              'Biometric Lock',
-              'ROZZ locks automatically after 5 minutes in the background. '
-              'Biometric or device PIN is required to re-open.',
+              'Full inbox history',
+              'Android 13+ hides the SMS inbox unless ROZZ is your default SMS app. '
+              'Enable it once to backfill your full history — new SMS arrive '
+              'automatically either way. This does not delete your messages app; '
+              'you can switch back anytime.',
+            ),
+            const SizedBox(height: 16),
+            _buildActionButton(
+              label: 'Grant Full Inbox Access',
+              color: RozzColors.accent,
+              onPressed: _grantFullInboxAccess,
             ),
             const SizedBox(height: 32),
             _buildSectionHeader('ABOUT'),
@@ -146,8 +188,9 @@ class _SettingsPageState extends State<SettingsPage> {
             _buildInfoCard(
               'ROZZ v1.0',
               'Your bank balance, finally understood. '
-              'HDFC bank SMS messages are parsed locally on-device. '
-              'No data is shared with third parties.',
+              'HDFC bank SMS messages are parsed and stored locally on-device. '
+              'The AI chat only sends redacted summaries (no names, UPI ids, '
+              'phone numbers or balances) to its AI service.',
             ),
           ],
         ),
@@ -210,7 +253,7 @@ class _SettingsPageState extends State<SettingsPage> {
         obscureText: _obscureText,
         style: GoogleFonts.dmMono(fontSize: 14, color: RozzColors.textPrimary),
         decoration: InputDecoration(
-          hintText: 'AIza...',
+          hintText: 'sk-or-v1-...',
           hintStyle: GoogleFonts.dmMono(color: RozzColors.textSecondary),
           contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
           border: InputBorder.none,

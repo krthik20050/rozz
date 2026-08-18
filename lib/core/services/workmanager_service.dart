@@ -1,8 +1,9 @@
 import 'package:workmanager/workmanager.dart';
 import 'package:rozz/core/database/database_helper.dart';
-import 'package:rozz/core/security/secure_storage_service.dart';
-import 'package:rozz/core/services/gemini_service.dart';
+import 'package:rozz/core/services/transaction_sync_service.dart';
 import 'package:rozz/features/transactions/data/datasources/transaction_local_datasource.dart';
+import 'package:rozz/features/transactions/data/datasources/sms_parser.dart';
+import 'package:rozz/features/transactions/data/repositories/transaction_repository_impl.dart';
 import 'package:rozz/features/mab/data/datasources/mab_local_datasource.dart';
 import 'package:rozz/features/mab/data/models/mab_record_model.dart';
 import 'package:intl/intl.dart';
@@ -13,12 +14,30 @@ void callbackDispatcher() {
     switch (task) {
       case 'eodBalanceTask':
         return await _handleEodBalanceTask();
-      case 'geminiSyncTask':
-        return await _handleGeminiSyncTask();
+      case 'smsBackfillTask':
+        return await _handleSmsBackfillTask();
       default:
         return Future.value(true);
     }
   });
+}
+
+/// Background SMS sync — the heavy lifting moves out of app startup. Drains
+/// whatever the native listener captured, then backfills the inbox for any
+/// SMS that arrived while the app was dead.
+Future<bool> _handleSmsBackfillTask() async {
+  try {
+    final databaseHelper = DatabaseHelper();
+    final transactionDatasource = TransactionLocalDatasourceImpl(databaseHelper);
+    final repository = TransactionRepositoryImpl(transactionDatasource);
+    final service = TransactionSyncService(repository, databaseHelper, SmsParser());
+    await service.drainPendingSms();
+    await service.drainRawInbox();
+    await service.backfillInbox();
+    return true;
+  } catch (e) {
+    return false;
+  }
 }
 
 Future<bool> _handleEodBalanceTask() async {
@@ -71,39 +90,10 @@ Future<bool> _handleEodBalanceTask() async {
   }
 }
 
-Future<bool> _handleGeminiSyncTask() async {
-  try {
-    final databaseHelper = DatabaseHelper();
-    final transactionDatasource = TransactionLocalDatasourceImpl(databaseHelper);
-    final secureStorage = SecureStorageService();
-    final geminiService = GeminiService(secureStorage);
-
-    final uncategorized = await transactionDatasource.getUncategorizedTransactions(limit: 20);
-    if (uncategorized.isEmpty) return true;
-
-    for (final tx in uncategorized) {
-      if (tx.id == null) continue;
-      final parts = <String>[];
-      if (tx.recipientName != null) parts.add(tx.recipientName!);
-      parts.add(tx.labelType.replaceAll('_', ' '));
-      if (tx.rawSms != null && tx.rawSms!.length <= 160) parts.add(tx.rawSms!);
-      final narration = parts.join(' – ');
-      final category = await geminiService.categorizeTransaction(narration);
-      if (category != null && category.isNotEmpty) {
-        await transactionDatasource.updateCategory(tx.id!, category);
-      }
-    }
-
-    return true;
-  } catch (e) {
-    return false;
-  }
-}
-
 class WorkmanagerService {
   static const String eodBalanceTask = "eodBalanceTask";
 
-  static const String geminiSyncTask = "geminiSyncTask";
+  static const String smsBackfillTask = "smsBackfillTask";
 
   static Future<void> initialize() async {
     await Workmanager().initialize(callbackDispatcher);
@@ -116,14 +106,12 @@ class WorkmanagerService {
       existingWorkPolicy: ExistingPeriodicWorkPolicy.keep,
     );
 
-    // AI Insight and categorization sync (only when connected)
+    // SMS backfill in the background every 6h — the app no longer re-parses
+    // the whole inbox on every launch.
     await Workmanager().registerPeriodicTask(
-      "2",
-      geminiSyncTask,
-      frequency: const Duration(hours: 24),
-      constraints: Constraints(
-        networkType: NetworkType.connected,
-      ),
+      "3",
+      smsBackfillTask,
+      frequency: const Duration(hours: 6),
       existingWorkPolicy: ExistingPeriodicWorkPolicy.keep,
     );
   }

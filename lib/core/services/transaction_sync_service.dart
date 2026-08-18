@@ -137,9 +137,14 @@ class TransactionSyncService {
       if (!await file.exists()) return 0;
       final lines = await file.readAsLines();
       if (lines.isEmpty) return 0;
-      // Truncate first: we own the lines now. Anything lost is re-captured by the
-      // next inbox backfill (the SMS is still in the system inbox).
-      await file.writeAsString('', flush: true);
+      // Keep unconsumed lines (unparseable, or persist failed) in the file
+      // instead of truncating first: on Android 13+ the system inbox backfill
+      // returns nothing unless ROZZ is the default SMS handler, so a dropped
+      // line here is a transaction lost forever — not re-captured. Successfully
+      // persisted lines are dropped by rewriting the file with only the
+      // leftovers. ponytail: single rewrite leaves a tiny race if Kotlin appends
+      // mid-drain; a shared lock file is the upgrade if that ever shows up.
+      final leftovers = <String>[];
       for (final line in lines) {
         if (line.trim().isEmpty) continue;
         try {
@@ -147,7 +152,10 @@ class TransactionSyncService {
           final body = map['body'] as String?;
           if (body == null || body.trim().isEmpty) continue;
           final parsed = _parser.parse(body);
-          if (parsed == null) continue;
+          if (parsed == null) {
+            leftovers.add(line);
+            continue;
+          }
           final receivedAt = map['received_at'] is int
               ? DateTime.fromMillisecondsSinceEpoch(
                   map['received_at'] as int,
@@ -156,16 +164,41 @@ class TransactionSyncService {
               : null;
           parsed['date'] ??= receivedAt?.toIso8601String();
           final persisted = await _persistParsed(parsed, body, receivedAt: receivedAt);
-          if (!persisted) continue;
+          if (!persisted) {
+            leftovers.add(line);
+            continue;
+          }
           drained++;
         } catch (e) {
           debugPrint('Pending SMS line failed: $e');
+          leftovers.add(line);
         }
+      }
+      if (leftovers.length < lines.length) {
+        await file.writeAsString(leftovers.join('\n'), flush: true);
       }
     } catch (e) {
       debugPrint('Drain pending SMS failed: $e');
     }
     return drained;
+  }
+
+  /// Last 4 digits of the account number, derived from the bank SMS.
+  Future<String?> accountSuffix() => _databaseHelper.accountSuffix();
+
+  /// How many transactions are already in the ledger. Used at app start to
+  /// decide between a full first-run backfill (empty DB) and a fast incremental
+  /// drain (data already synced — the background task owns the backfill).
+  Future<int> transactionCount() async {
+    try {
+      final result = await _databaseHelper.query((db) async {
+        return await db.rawQuery('SELECT COUNT(*) AS c FROM transactions');
+      });
+      return (result.first['c'] as num).toInt();
+    } catch (e) {
+      debugPrint('Transaction count failed: $e');
+      return 0;
+    }
   }
 
   /// Rows stuck in raw_inbox that never parsed (promos, OTPs, foreign banks, bugs).

@@ -1,7 +1,7 @@
 # ROZZ
 ### Your bank balance, finally understood.
 
-ROZZ is a high-performance personal finance companion that bridges the gap between raw SMS alerts and actionable financial clarity. It autonomously parses HDFC bank notifications using a Node.js bridge, calculates Monthly Average Balance (MAB) in real-time, and employs Gemini 2.0 Flash to turn cryptic transaction narrations into meaningful categories.
+ROZZ is a high-performance personal finance companion that bridges the gap between raw SMS alerts and actionable financial clarity. It autonomously parses HDFC bank notifications using a Node.js bridge, calculates Monthly Average Balance (MAB) in real-time, and employs an OpenRouter-powered AI (with Gemini free-tier fallback) to turn cryptic transaction narrations into meaningful categories.
 
 [![Flutter](https://img.shields.io/badge/Flutter-02569B?style=for-the-badge&logo=flutter&logoColor=white)](https://flutter.dev)
 [![Dart](https://img.shields.io/badge/Dart-0175C2?style=for-the-badge&logo=dart&logoColor=white)](https://dart.dev)
@@ -14,7 +14,7 @@ ROZZ is a high-performance personal finance companion that bridges the gap betwe
 
 - **Automated SMS Parsing:** Real-time extraction of transaction data from HDFC bank SMS via a native Dart parser (`features/transactions/data/datasources/sms_parser.dart`).
 - **MAB Guardian:** Live tracking of Monthly Average Balance with "Safe/Danger" zones and predictive daily requirements to avoid bank fines.
-- **AI Categorization:** Integrated Gemini 2.0 Flash API to automatically categorize transactions and provide financial insights.
+- **AI Categorization:** Integrated OpenRouter AI API to automatically categorize transactions and provide financial insights.
 - **Security First:** Biometric authentication and Android Keystore integration for sensitive data, with `FLAG_SECURE` protection.
 - **Background Sync:** WorkManager-driven EOD balance snapshots and automated cloud synchronization.
 - **Premium UI:** Dark-mode-only interface featuring Syne and DM Sans typography for a modern financial experience.
@@ -27,7 +27,7 @@ rozz_app/
 │   ├── core/
 │   │   ├── database/        # SQLite (WAL mode) & Write Queue
 │   │   ├── security/        # Biometric & Keystore services
-│   │   ├── services/        # Node.js Bridge, Gemini API, WorkManager
+│   │   ├── services/        # Node.js Bridge, AI API, WorkManager
 │   │   └── theme/           # Syne & DM Sans design tokens
 │   ├── features/
 │   │   ├── home/            # Summary & Hero widgets
@@ -51,7 +51,7 @@ rozz_app/
    flutter pub get
    ```
 3. **Environment Setup:**
-   - Create a `.env` file or update `SecureStorageService` with your `GEMINI_API_KEY`.
+   - Create a `.env` file or update `SecureStorageService` with your `AI_API_KEY`.
 4. **Run the app:**
    ```bash
    flutter run

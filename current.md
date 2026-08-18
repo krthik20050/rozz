@@ -35,8 +35,8 @@ Initialize Phase 2 by setting up the SQLite database and Node.js bridge.
    - [x] Transaction parser logic (Node.js/JS side) - 100% accurate on 50 mock HDFC edge cases.
 5. **Background Work:**
    - [ ] WorkManager for scheduled API sync jobs.
-6. **Gemini Integration:**
-   - [ ] Gemini 2.0 Flash API via REST for categorization insights.
+6. **AI Integration:**
+   - [ ] OpenRouter AI API (`openrouter/free`) for categorization insights; Gemini free tier as fallback.
 7. **Business Logic (BLoC):**
    - [ ] Replace hardcoded fake data with repository/data source implementations.
    - [ ] Error handling (try-catch-finally) across all services.
