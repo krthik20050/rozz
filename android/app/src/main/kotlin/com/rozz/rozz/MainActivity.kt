@@ -30,10 +30,21 @@ class MainActivity : FlutterActivity() {
                     startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
                     result.success(null)
                 }
+                "isDefaultSmsHandler" -> result.success(isDefaultSmsHandler())
+                "requestDefaultSmsRole" -> {
+                    val intent = Intent(Telephony.Sms.Intents.ACTION_CHANGE_DEFAULT).apply {
+                        putExtra(Telephony.Sms.Intents.EXTRA_PACKAGE_NAME, packageName)
+                    }
+                    startActivity(intent)
+                    result.success(isDefaultSmsHandler())
+                }
                 else -> result.notImplemented()
             }
         }
     }
+
+    private fun isDefaultSmsHandler(): Boolean =
+        Telephony.Sms.getDefaultSmsPackage(this) == packageName
 
     private fun isNotificationAccessGranted(): Boolean {
         val expected = ComponentName(this, SmsNotificationListener::class.java)

@@ -11,8 +11,8 @@ void main() {
   });
 
   test('writeValue then readValue round-trips', () async {
-    await service.writeValue('GEMINI_API_KEY', 'test-key');
-    expect(await service.readValue('GEMINI_API_KEY'), 'test-key');
+    await service.writeValue('AI_API_KEY', 'test-key');
+    expect(await service.readValue('AI_API_KEY'), 'test-key');
   });
 
   test('readValue returns null for missing key', () async {

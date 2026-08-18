@@ -23,13 +23,24 @@ class MabZoneBanner extends StatelessWidget {
         ),
       ),
       child: Center(
-        child: Text(
-          config.label,
-          style: GoogleFonts.dmSans(
-            fontSize: 16,
-            fontWeight: FontWeight.bold,
-            color: config.color,
-            letterSpacing: 1.1,
+        child: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 350),
+          transitionBuilder: (child, animation) => FadeTransition(
+            opacity: animation,
+            child: ScaleTransition(
+              scale: Tween<double>(begin: 0.92, end: 1.0).animate(animation),
+              child: child,
+            ),
+          ),
+          child: Text(
+            config.label,
+            key: ValueKey(config.label),
+            style: GoogleFonts.dmSans(
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              color: config.color,
+              letterSpacing: 1.1,
+            ),
           ),
         ),
       ),
@@ -39,13 +50,14 @@ class MabZoneBanner extends StatelessWidget {
   _ZoneConfig _getZoneConfig(MabZone zone) {
     switch (zone) {
       case MabZone.safe:
-        return _ZoneConfig(RozzColors.income, 'SAFE \u2705');
+        return _ZoneConfig(RozzColors.income, 'MAB SAFE \u2705');
       case MabZone.middle:
-        return _ZoneConfig(RozzColors.insight, 'WATCH \u26A1');
+        return _ZoneConfig(RozzColors.insight, 'MAB AT RISK \u26A1');
       case MabZone.danger:
         return _ZoneConfig(const Color(0xFFF0923A), 'ACT NOW \u26A0');
       case MabZone.fine:
-        return _ZoneConfig(RozzColors.expense, 'FINE LIKELY \ud83d\udea8');
+        // "FINE LIKELY" reads like "it's probably fine" — say penalty plainly.
+        return _ZoneConfig(RozzColors.expense, 'PENALTY LIKELY \ud83d\udea8');
     }
   }
 }

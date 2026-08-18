@@ -6,7 +6,9 @@ class CalculateMab {
     required List<MabRecord> monthRecords,
     required int month,
     required int year,
-    double threshold = 10000,
+    // The account's actual required minimum (HDFC regular savings: ₹5,000).
+    // The user can change this in the MAB screen.
+    double threshold = 5000,
     DateTime? now,
   }) {
     final effectiveNow = now ?? DateTime.now();

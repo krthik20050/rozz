@@ -50,6 +50,9 @@ void main() {
         monthRecords: records,
         month: 3,
         year: 2026,
+        // Keep a ₹10,000 minimum here so this still exercises the unsafe path
+        // (the app's default is now ₹5,000, where 5,000/day is safe).
+        threshold: 10000,
         now: DateTime(2026, 3, 31),
       );
       expect(status.zone, MabZone.fine);

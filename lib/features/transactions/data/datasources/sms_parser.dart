@@ -2,10 +2,20 @@ class SmsParser {
   static final _amountRe = RegExp(r'(?:Rs\.?|INR|₹)\s*([\d,]+(?:\.\d+)?)');
   static final _debitRe = RegExp(r'\b(?:debited|spent|withdrawn|sent)\b|Payment\s+of', caseSensitive: false);
   static final _creditRe = RegExp(r'\b(?:credited|received)\b', caseSensitive: false);
-  static final _recipientRe = RegExp(
-    r'\b(?:to|from|at)\s+(?!A\/?c\b|a\/?c\b)(?:VPA\s+)?'
-    r'([A-Za-z0-9&@.\/\-]+?(?:\s+[A-Za-z0-9&@\/\-]+)*?)'
-    r'(?=\.|,|(?:\s+(?:via|by|at|Ref|UPI|IMPS|NEFT|from)\b)|(?:\s+on\s+\d)|$)',
+  static final _accountRe = RegExp(r'a\/?c\b', caseSensitive: false);
+
+  /// Matches "to X" / "from X" / "at X" party mentions, stopping at newlines
+  /// and punctuation. The old version used `\s+` inside the capture, which
+  /// crosses newlines and swallowed the WHOLE SMS as the recipient name
+  /// ("HDFC Bank A/c 4736\nTo SPOTIFY\n08/08/26") — breaking subscriptions
+  /// and sender identity. Spaces/tabs only, and the lookahead terminates on
+  /// `\n`.
+  static final _partyRe = RegExp(
+    r'\b(to|from|at)\s+'
+    r'(?:VPA\s+)?'
+    r'([A-Za-z0-9&@.+\/\-]+?(?:[ \t]+[A-Za-z0-9&@\/\-]+)*?)'
+    r'(?=\n|\.|,|(?:\s*\()|(?:\s+(?:via|by|at|ref|upi|imps|neft|from|to)\b)|(?:\s+on\s+\d)|$)',
+    caseSensitive: false,
   );
   static final _refRe = RegExp(r'\bRef(?!und)\b\s*:?\s*([A-Za-z0-9]+)');
   static final _balanceRe = RegExp(
@@ -13,6 +23,13 @@ class SmsParser {
     caseSensitive: false,
   );
   static final _dateRe = RegExp(r'\bon\s+(\d{1,2})-(\d{1,2})-(\d{2,4})');
+  /// HDFC's balance advice formats: "as on yesterday:14-AUG-26", "as on
+  /// yesterday 14-AUG-26", "as on 14-AUG-26". Transaction SMS use plain "on"
+  /// (dd-mm-yy), never "as on" — the distinction is reliable.
+  static final _asOnDateRe = RegExp(
+    r'\bas on\s+(?:yesterday\s*:?\s*)?\d{1,2}-[a-z]{3}-\d{2,4}\b',
+    caseSensitive: false,
+  );
 
   Map<String, dynamic>? parse(String body) {
     try {
@@ -20,9 +37,9 @@ class SmsParser {
       // as on yesterday ... is INR X") is a balance snapshot, not a transaction.
       // Capture the reported balance so the app's balance stays current.
       final low = body.toLowerCase();
-      if (low.contains('as on yesterday') ||
+      if (low.startsWith('available bal') ||
           low.contains('gone below minimum limit') ||
-          low.startsWith('available bal in hdfc')) {
+          _asOnDateRe.hasMatch(low)) {
         final balMatch = RegExp(
           r'is\s+INR\s*([\d,]+(?:\.\d+)?)',
           caseSensitive: false,
@@ -47,7 +64,7 @@ class SmsParser {
           ? 'credit'
           : (_debitRe.hasMatch(body) ? 'debit' : 'unknown');
 
-      final recipientMatch = _recipientRe.firstMatch(body);
+      final recipientName = _extractParty(body, direction);
       final refMatch = _refRe.firstMatch(body);
       final balanceMatch = _balanceRe.firstMatch(body);
       final dateMatch = _dateRe.firstMatch(body);
@@ -63,7 +80,7 @@ class SmsParser {
       return {
         'amount': _parseAmount(amountMatch.group(1)),
         'direction': direction,
-        'recipient_name': recipientMatch?.group(1)?.trim(),
+        'recipient_name': recipientName,
         'upi_ref_number': refMatch?.group(1),
         'balance_after': balanceMatch != null ? _parseAmount(balanceMatch.group(1)) : null,
         'label_type': _labelType(body),
@@ -75,10 +92,36 @@ class SmsParser {
     }
   }
 
-  /// "as on yesterday:14-AUG-26" -> 2026-08-14 (the balance's as-of date).
+  /// Direction-aware party extraction. The bank's SMS names the OWN account
+  /// first ("credited to HDFC Bank A/c XX4736") — for credits the sender is
+  /// the "from" party, for debits the merchant is the "to" party. Own-account
+  /// mentions are never the answer.
+  static String? _extractParty(String body, String direction) {
+    final matches = _partyRe.allMatches(body).toList();
+    if (matches.isEmpty) return null;
+
+    final preferred = direction == 'credit' ? 'from' : 'to';
+    String? preferredMatch;
+    String? anyMatch;
+    for (final m in matches) {
+      final keyword = m.group(1)!.toLowerCase();
+      final candidate = m.group(2)!.trim();
+      if (candidate.isEmpty) continue;
+      if (candidate.length > 40) continue; // sanity: never swallow a whole SMS
+      if (_accountRe.hasMatch(candidate)) continue; // own account, not a party
+      anyMatch ??= candidate;
+      if (keyword == preferred) {
+        preferredMatch ??= candidate;
+      }
+    }
+    return preferredMatch ?? anyMatch;
+  }
+
+  /// "as on yesterday:14-AUG-26" / "as on 14-AUG-26" -> 2026-08-14 (the
+  /// balance's as-of date).
   static String? _asOfDate(String body) {
     final m = RegExp(
-      r'as on yesterday:\s*(\d{1,2})-([A-Za-z]{3})-([0-9]{2,4})',
+      r'as on\s+(?:yesterday\s*:?\s*)?(\d{1,2})-([A-Za-z]{3})-([0-9]{2,4})',
       caseSensitive: false,
     ).firstMatch(body);
     if (m == null) return null;

@@ -15,10 +15,20 @@ class MabLoaded extends MabState {
   final MabStatus status;
   final List<MabRecord> records;
 
-  const MabLoaded(this.status, [this.records = const []]) : super();
+  /// The month this forecast was computed for — the page shows it (real data,
+  /// never a hardcoded label) and lets the user switch months.
+  final int month;
+  final int year;
+
+  const MabLoaded(
+    this.status, [
+    this.records = const [],
+    this.month = 0,
+    this.year = 0,
+  ]) : super();
 
   @override
-  List<Object?> get props => [status];
+  List<Object?> get props => [status, records, month, year];
 }
 
 class MabError extends MabState {
