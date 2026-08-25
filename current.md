@@ -1,6 +1,6 @@
 # ROZZ — Project Progress
 
-> Keep this file current. Updated last: 2026-08-20.
+> Keep this file current. Updated last: 2026-08-25.
 > Daily work log lives in `docs/daily-log/`.
 
 ## Phase 1 — App scaffold & UI (COMPLETE)
@@ -146,14 +146,28 @@
 - [ ] STILL OPEN: balance live-update confirmation needs a future real SMS
       (encrypted DB not host-readable).
 
+## Today (2026-08-25) — chat red-screen crash fixed
+
+- [x] **Chat red-screen crash fixed (root-caused).** `_mdStyle()` built the
+      markdown sheet via `MarkdownStyleSheet.fromTheme`, which asserts
+      `textTheme.bodyMedium?.fontSize != null` (and later does `fontSize!`) —
+      but current Flutter's default dark text theme leaves font sizes unset, so
+      EVERY assistant reply threw (red error screen in debug, TypeError in
+      release). `_mdStyle()` now builds `MarkdownStyleSheet` directly with
+      explicit sizes — deterministic, theme-independent.
+- [x] First chat widget tests added (`chat_rozz_page_test.dart`, 4 tests):
+      send+render, markdown **table** reply (the exact crash path — failed
+      before the fix), stream-error fallback, no-key setup. 130 tests passing,
+      `flutter analyze` clean.
+
 ## Open tasks
 
 - [ ] Finish security hardening: remove `WRITE_SMS`/`SEND_SMS`, fix release
       signing, harden + fuzz the SMS parser (see daily log).
 - [ ] Fix GitHub branch protection (add `refs/heads/main` to ruleset
       `include`) and/or re-auth `gh` (404 token issue).
-- [ ] **Confirm chat replies on device** — a real reply after the ledger-cap
-      fix is still unconfirmed (re-verification inconclusive).
+- [ ] **Confirm chat replies on device** — the 413 fix and the new red-screen
+      fix both need a final on-device check (device currently unauthorized).
 - [ ] **Confirm balance live-update on device** — deferred to the next real
       incoming SMS (encrypted DB not host-readable). Fine estimate is
       unit-tested.
