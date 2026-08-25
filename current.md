@@ -160,6 +160,20 @@
       before the fix), stream-error fallback, no-key setup. 130 tests passing,
       `flutter analyze` clean.
 
+## Today (2026-08-25) — global ErrorBoundary
+
+- [x] **Global ErrorBoundary shipped** — `core/services/error_boundary.dart`,
+      installed in `main()` inside `runZonedGuarded`. Framework errors keep the
+      console dump but also log; uncaught async errors return handled (app
+      never dies); `ErrorWidget.builder` swaps the red/grey screen for a calm
+      on-brand fallback (debug shows a truncated exception, release leaks
+      nothing). Crashes append to capped `crash_log.txt` beside the DB so
+      device failures are retrievable despite SQLCipher. `ensureInitialized`
+      runs in the guarded zone to avoid the zone-mismatch warning.
+- [x] 6 new tests (`error_boundary_test.dart`): handler install/reset, async
+      error stays handled, crash log append + cap reset, fallback widget.
+      **139 tests passing, `flutter analyze` clean.**
+
 ## Open tasks
 
 - [ ] Finish security hardening: remove `WRITE_SMS`/`SEND_SMS`, fix release
