@@ -3,15 +3,22 @@ import '../entities/mab_fine_estimate.dart';
 /// Estimates the monthly MAB non-maintenance fine from the achieved average
 /// balance vs the required minimum.
 ///
-/// Pure and unit-tested. Uses the standard HDFC savings-account schedule
-/// (metro/urban branches); GST is charged on top by the bank:
-///   - shortfall ≤ 50% of required  → ₹600
-///   - shortfall 50%–75%            → ₹750
-///   - shortfall > 75%              → ₹1,200
+/// Pure and unit-tested. Matches HDFC's published Regular Savings schedule:
+/// 6% of the shortfall OR a cap (whichever is lower), with GST charged on top
+/// by the bank. The cap is ₹600 (metro/urban) by default; pass ₹300 for
+/// semi-urban/rural accounts.
 class EstimateMabFine {
-  static const double _fineUpTo50 = 600;
-  static const double _fineUpTo75 = 750;
-  static const double _fineAbove75 = 1200;
+  static const double _fineRate = 0.06;
+
+  /// Metro/urban cap from HDFC's service-charges schedule.
+  static const double metroCap = 600;
+
+  /// Semi-urban/rural cap (GIGA schedule).
+  static const double semiRuralCap = 300;
+
+  final double maxFine;
+
+  const EstimateMabFine({this.maxFine = metroCap});
 
   MabFineEstimate call({
     required double mab,
@@ -30,14 +37,7 @@ class EstimateMabFine {
 
     final shortfall = requiredMin - mab;
     final percent = (shortfall / requiredMin) * 100;
-    final double fine;
-    if (percent <= 50) {
-      fine = _fineUpTo50;
-    } else if (percent <= 75) {
-      fine = _fineUpTo75;
-    } else {
-      fine = _fineAbove75;
-    }
+    final fine = (shortfall * _fineRate).clamp(0, maxFine).toDouble();
 
     return MabFineEstimate(
       mab: mab,

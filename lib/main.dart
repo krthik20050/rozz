@@ -7,6 +7,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:rozz/core/database/database_helper.dart';
+import 'package:rozz/core/security/clipboard_guard.dart';
+import 'package:rozz/core/security/root_detection_service.dart';
 import 'package:rozz/core/security/secure_storage_service.dart';
 import 'package:rozz/core/services/ai_service.dart';
 import 'package:rozz/core/services/transaction_sync_service.dart';
@@ -42,6 +44,7 @@ import 'package:rozz/features/transactions/presentation/pages/activity_page.dart
 import 'package:rozz/shared/services/contact_resolver.dart';
 import 'package:rozz/shared/widgets/bottom_nav_bar.dart';
 import 'package:rozz/shared/widgets/offline_banner.dart';
+import 'package:rozz/shared/widgets/security_banner.dart';
 
 /// Dev-only bootstrap: imports an API key from `files/ai_key.txt`
 /// into secure storage on first launch, then deletes the file. The key never
@@ -184,7 +187,7 @@ class RozzApp extends StatefulWidget {
   State<RozzApp> createState() => _RozzAppState();
 }
 
-class _RozzAppState extends State<RozzApp> {
+class _RozzAppState extends State<RozzApp> with WidgetsBindingObserver {
   static const _onboardingDoneKey = 'onboarding_complete';
 
   bool _isSyncing = false;
@@ -200,11 +203,41 @@ class _RozzAppState extends State<RozzApp> {
   /// on the home page as a warning card when missing.
   bool _notificationAccess = true;
 
+  final RootDetectionService _rootDetection = RootDetectionService();
+  late final ClipboardGuard _clipboardGuard;
+
+  /// Set when the device looks rooted/jailbroken — surfaces a warning banner.
+  bool _deviceCompromised = false;
+
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _clipboardGuard = ClipboardGuard()..start();
     _setupSmsListener();
     _loadOnboardingFlag();
+    _checkDeviceSecurity();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _clipboardGuard.dispose();
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) return;
+    if (!_flagLoaded || _showOnboarding || _isSyncing) return;
+    _refreshAllBlocs();
+  }
+
+  Future<void> _checkDeviceSecurity() async {
+    final compromised = await _rootDetection.isDeviceCompromised();
+    if (mounted && compromised) {
+      setState(() => _deviceCompromised = true);
+    }
   }
 
   /// First-run users see the onboarding walkthrough (which explains the *why*
@@ -273,13 +306,13 @@ class _RozzAppState extends State<RozzApp> {
         // Already synced: fast incremental drain of whatever the native
         // listener captured. The heavy inbox backfill runs in the background
         // (WorkManager smsBackfillTask), not on every app open.
-        final pending = await widget.syncService.drainPendingSms();
-        final raw = await widget.syncService.drainRawInbox();
-        // Nothing new landed — don't re-run every screen's heavy load for
-        // nothing.
-        if (pending + raw > 0) {
-          _refreshAllBlocs();
-        }
+        await widget.syncService.drainPendingSms();
+        await widget.syncService.drainRawInbox();
+        // Always refresh: the WorkManager 6h background task drains the same
+        // files in a background isolate, so `pending` is usually 0 at app open
+        // even though new data landed — gating on the count left the UI stale
+        // every time.
+        _refreshAllBlocs();
       }
     }
   }
@@ -408,11 +441,13 @@ class _RozzAppState extends State<RozzApp> {
       home: !_flagLoaded
           ? const _SplashPage()
           : _showOnboarding
-              ? OnboardingPage(onDone: _finishOnboarding)                  : _isSyncing
+              ? OnboardingPage(onDone: _finishOnboarding)
+              : _isSyncing
                       ? _SyncLoadingPage(status: _syncStatus, progress: _syncProgress)
                       : MainScaffold(
                           onSync: syncInbox,
                           notificationAccess: _notificationAccess,
+                          deviceCompromised: _deviceCompromised,
                           onEnableNotificationAccess: () async {
                             await _channel.invokeMethod('openNotificationAccessSettings');
                             final ok = await _channel
@@ -519,6 +554,9 @@ class MainScaffold extends StatefulWidget {
   final bool notificationAccess;
   final VoidCallback? onEnableNotificationAccess;
 
+  /// Whether the device looks rooted/jailbroken — shows a warning banner.
+  final bool deviceCompromised;
+
   final AiService aiService;
   final SecureStorageService secureStorage;
   final TransactionSyncService syncService;
@@ -528,6 +566,7 @@ class MainScaffold extends StatefulWidget {
     required this.onSync,
     this.notificationAccess = true,
     this.onEnableNotificationAccess,
+    this.deviceCompromised = false,
     required this.aiService,
     required this.secureStorage,
     required this.syncService,
@@ -586,12 +625,18 @@ class _MainScaffoldState extends State<MainScaffold> {
         body: Stack(
           children: [
             IndexedStack(index: _currentIndex, children: pages),
-            // Offline notice slides in at the top, above all tabs.
-            const Positioned(
+            // Security (rooted device) + offline notices slide in at the top,
+            // above all tabs.
+            Positioned(
               top: 0,
               left: 0,
               right: 0,
-              child: OfflineBanner(),
+              child: Column(
+                children: [
+                  if (widget.deviceCompromised) const SecurityBanner(),
+                  const OfflineBanner(),
+                ],
+              ),
             ),
           ],
         ),

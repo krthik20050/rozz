@@ -64,7 +64,7 @@ class _AnimatedCounterTextState extends State<AnimatedCounterText> {
                 text: '.$decimalPart',
                 style: RozzTypography.financialNumber(
                   fontSize: widget.fontSize * 0.6,
-                  color: widget.color.withOpacity(0.6),
+                  color: widget.color.withValues(alpha: 0.6),
                 ),
               ),
             ],

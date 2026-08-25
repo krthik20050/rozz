@@ -27,29 +27,23 @@ class StateMessage extends StatelessWidget {
   /// Error variant with a retry action.
   const StateMessage.error({
     super.key,
-    required String title,
-    required String message,
+    required this.title,
+    required this.message,
     VoidCallback? onRetry,
   })  : icon = Icons.error_outline,
         color = RozzColors.expense,
-        title = title,
-        message = message,
         actionLabel = onRetry == null ? null : 'retry',
         onAction = onRetry;
 
   /// Empty / informational variant with an optional action.
   const StateMessage.empty({
     super.key,
-    required String title,
-    required String message,
-    String? actionLabel,
-    VoidCallback? onAction,
+    required this.title,
+    required this.message,
+    this.actionLabel,
+    this.onAction,
   })  : icon = Icons.inbox_outlined,
-        color = RozzColors.textSecondary,
-        title = title,
-        message = message,
-        actionLabel = actionLabel,
-        onAction = onAction;
+        color = RozzColors.textSecondary;
 
   @override
   Widget build(BuildContext context) {

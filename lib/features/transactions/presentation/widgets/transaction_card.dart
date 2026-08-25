@@ -59,7 +59,7 @@ class TransactionCard extends StatelessWidget {
                     shape: BoxShape.circle,
                     boxShadow: [
                       BoxShadow(
-                        color: brand.backgroundColor.withOpacity(0.3),
+                        color: brand.backgroundColor.withValues(alpha: 0.3),
                         blurRadius: 8,
                         offset: const Offset(0, 2),
                       ),

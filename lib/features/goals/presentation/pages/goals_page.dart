@@ -111,7 +111,7 @@ class GoalsPage extends StatelessWidget {
                 width: 40,
                 height: 40,
                 decoration: BoxDecoration(
-                  color: (goal['color'] as Color).withOpacity(0.15),
+                  color: (goal['color'] as Color).withValues(alpha: 0.15),
                   shape: BoxShape.circle,
                 ),
                 child: Icon(goal['icon'] as IconData, color: goal['color'] as Color, size: 20),

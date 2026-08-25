@@ -17,30 +17,37 @@ void main() {
     expect(result.fine, 0);
   });
 
-  test('shortfall up to 50% → ₹600', () {
-    // MAB 3,000 vs 5,000 required = 40% shortfall.
+  test('fine is 6% of the shortfall', () {
+    // MAB 3,000 vs 5,000 required = 40% shortfall → 6% of 2,000 = 120.
     final result = estimate.call(mab: 3000, requiredMin: 5000);
     expect(result.hasShortfall, isTrue);
     expect(result.shortfall, 2000);
     expect(result.shortfallPercent, closeTo(40, 0.01));
-    expect(result.fine, 600);
+    expect(result.fine, closeTo(120, 0.01));
   });
 
-  test('shortfall between 50% and 75% → ₹750', () {
-    // MAB 1,500 vs 5,000 required = 70% shortfall.
+  test('fine grows with the shortfall', () {
+    // 6% of 3,500 = 210.
     final result = estimate.call(mab: 1500, requiredMin: 5000);
-    expect(result.fine, 750);
+    expect(result.fine, closeTo(210, 0.01));
   });
 
-  test('shortfall above 75% → ₹1,200', () {
-    // MAB 500 vs 5,000 required = 90% shortfall.
-    final result = estimate.call(mab: 500, requiredMin: 5000);
-    expect(result.fine, 1200);
+  test('fine caps at the metro/urban cap', () {
+    // 6% of 5,000 = 300 → under the ₹600 metro cap.
+    final zero = estimate.call(mab: 0, requiredMin: 5000);
+    expect(zero.shortfallPercent, 100);
+    expect(zero.fine, 300);
+
+    // 6% of 15,000 = 900 → capped at ₹600.
+    final capped = estimate.call(mab: 0, requiredMin: 15000);
+    expect(capped.fine, 600);
   });
 
-  test('full shortfall (zero balance) → ₹1,200', () {
-    final result = estimate.call(mab: 0, requiredMin: 5000);
-    expect(result.shortfallPercent, 100);
-    expect(result.fine, 1200);
+  test('semi-urban/rural accounts cap at ₹300', () {
+    final semi = EstimateMabFine(maxFine: EstimateMabFine.semiRuralCap);
+    // 6% of 5,000 = 300 → exactly the cap.
+    expect(semi.call(mab: 0, requiredMin: 5000).fine, 300);
+    // 6% of 15,000 = 900 → capped at ₹300.
+    expect(semi.call(mab: 0, requiredMin: 15000).fine, 300);
   });
 }

@@ -1,4 +1,4 @@
-/// Phone-number helpers shared by contact matching and sender identity.
+// Phone-number helpers shared by contact matching and sender identity.
 
 /// Strips everything non-digit from [raw] and returns the last 10 digits —
 /// the canonical form for matching Indian mobile numbers. Returns null when

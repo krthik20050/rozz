@@ -127,60 +127,116 @@ class TransactionSyncService {
   }
 
   /// Drains SMS captured natively by Kotlin (SmsStore JSONL handoff).
-  /// Kotlin appends to `raw_inbox.jsonl`; we own the DB, so we read the file with
-  /// our sqflite connection and parse each line into transactions.
+  /// Kotlin appends to `raw_inbox.jsonl`; we own the DB, so we read the file
+  /// with our sqflite connection and parse each line into transactions.
+  ///
+  /// The live file is NEVER truncated in place. We atomically rename it to a
+  /// `.draining` file (same filesystem, so the rename is atomic), consume its
+  /// lines, then append any leftovers back to a fresh live file with append
+  /// mode — which cannot clobber a concurrent Kotlin append. An SMS Kotlin
+  /// writes after the rename lands in a brand-new `raw_inbox.jsonl` and is
+  /// picked up on the next drain; the read-then-truncate race that erased the
+  /// newest message is gone. A stale `.draining` file from a crashed drain is
+  /// recovered first. Concurrent drains are safe: the loser of the rename finds
+  /// no live file and returns 0, and a failed rename never deletes the winner's
+  /// `.draining` file (the delete only runs after a successful consume).
   Future<int> drainPendingSms() async {
     var drained = 0;
     try {
       final dir = await getDatabasesPath();
       final file = File('$dir/raw_inbox.jsonl');
-      if (!await file.exists()) return 0;
-      final lines = await file.readAsLines();
-      if (lines.isEmpty) return 0;
-      // Keep unconsumed lines (unparseable, or persist failed) in the file
-      // instead of truncating first: on Android 13+ the system inbox backfill
-      // returns nothing unless ROZZ is the default SMS handler, so a dropped
-      // line here is a transaction lost forever — not re-captured. Successfully
-      // persisted lines are dropped by rewriting the file with only the
-      // leftovers. ponytail: single rewrite leaves a tiny race if Kotlin appends
-      // mid-drain; a shared lock file is the upgrade if that ever shows up.
-      final leftovers = <String>[];
-      for (final line in lines) {
-        if (line.trim().isEmpty) continue;
-        try {
-          final map = jsonDecode(line) as Map<String, dynamic>;
-          final body = map['body'] as String?;
-          if (body == null || body.trim().isEmpty) continue;
-          final parsed = _parser.parse(body);
-          if (parsed == null) {
-            leftovers.add(line);
-            continue;
-          }
-          final receivedAt = map['received_at'] is int
-              ? DateTime.fromMillisecondsSinceEpoch(
-                  map['received_at'] as int,
-                  isUtc: true,
-                )
-              : null;
-          parsed['date'] ??= receivedAt?.toIso8601String();
-          final persisted = await _persistParsed(parsed, body, receivedAt: receivedAt);
-          if (!persisted) {
-            leftovers.add(line);
-            continue;
-          }
-          drained++;
-        } catch (e) {
-          debugPrint('Pending SMS line failed: $e');
-          leftovers.add(line);
-        }
+      final drainFile = File('$dir/raw_inbox.draining.jsonl');
+      final hadLiveFile = await file.exists();
+
+      // Crash recovery: a previous drain died mid-way and left unconsumed lines.
+      if (await drainFile.exists()) {
+        drained += await _consumePendingLines(drainFile, file);
+        if (await drainFile.exists()) await drainFile.delete();
       }
-      if (leftovers.length < lines.length) {
-        await file.writeAsString(leftovers.join('\n'), flush: true);
-      }
+
+      // If the live file was (re)created purely by appending leftovers back
+      // after recovery, those lines are already in place — nothing new to drain.
+      if (!hadLiveFile) return drained;
+      if (!await file.exists()) return drained;
+
+      // Atomic same-filesystem rename. From here the live file belongs to Kotlin
+      // again; every line already in it is ours.
+      await file.rename(drainFile.path);
+      drained += await _consumePendingLines(drainFile, file);
+      if (await drainFile.exists()) await drainFile.delete();
     } catch (e) {
       debugPrint('Drain pending SMS failed: $e');
     }
     return drained;
+  }
+
+  /// Parses + persists every line in [source], appending any line that failed
+  /// to parse or persist back to the live [liveFile]. Append mode never
+  /// truncates, so the write cannot collide with a concurrent Kotlin append.
+  /// Returns how many lines became transactions. Shared by the crash-recovery
+  /// path and the normal path so the two can never drift apart.
+  Future<int> _consumePendingLines(File source, File liveFile) async {
+    var drained = 0;
+    final lines = await source.readAsLines();
+    if (lines.isEmpty) return 0;
+    // Keep unconsumed lines (unparseable, or persist failed) in the live file
+    // instead of truncating: on Android 13+ the system inbox backfill returns
+    // nothing unless ROZZ is the default SMS handler, so a dropped line here is
+    // a transaction lost forever — not re-captured.
+    final leftovers = <String>[];
+    for (final line in lines) {
+      if (line.trim().isEmpty) continue;
+      try {
+        final map = jsonDecode(line) as Map<String, dynamic>;
+        final body = map['body'] as String?;
+        if (body == null || body.trim().isEmpty) continue;
+        final parsed = _parser.parse(body);
+        if (parsed == null) {
+          leftovers.add(line);
+          continue;
+        }
+        final receivedAt = map['received_at'] is int
+            ? DateTime.fromMillisecondsSinceEpoch(
+                map['received_at'] as int,
+                isUtc: true,
+              )
+            : null;
+        parsed['date'] ??= receivedAt?.toIso8601String();
+        final persisted = await _persistParsed(parsed, body, receivedAt: receivedAt);
+        if (!persisted) {
+          leftovers.add(line);
+          continue;
+        }
+        drained++;
+      } catch (e) {
+        debugPrint('Pending SMS line failed: $e');
+        leftovers.add(line);
+      }
+    }
+    if (leftovers.isNotEmpty) {
+      final needsSep = await _fileNeedsLeadingNewline(liveFile);
+      await liveFile.writeAsString(
+        '${needsSep ? '\n' : ''}${leftovers.join('\n')}\n',
+        mode: FileMode.append,
+        flush: true,
+      );
+    }
+    return drained;
+  }
+
+  /// Whether [f] exists, is non-empty, and does not end with a newline — i.e.
+  /// appending another line would splice onto its last line.
+  Future<bool> _fileNeedsLeadingNewline(File f) async {
+    if (!await f.exists()) return false;
+    final len = await f.length();
+    if (len == 0) return false;
+    final raf = await f.open(mode: FileMode.read);
+    try {
+      await raf.setPosition(len - 1);
+      return await raf.readByte() != 0x0A;
+    } finally {
+      await raf.close();
+    }
   }
 
   /// Last 4 digits of the account number, derived from the bank SMS.

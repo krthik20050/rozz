@@ -1,41 +1,78 @@
 import 'dart:io';
+import 'dart:convert';
+import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart';
-import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart' as ffi;
+import 'package:sqflite_sqlcipher/sqflite.dart' as sqlcipher;
+import 'package:rozz/core/security/secure_storage_service.dart';
 import 'package:rozz/features/transactions/data/datasources/sms_parser.dart';
 import 'write_queue.dart';
 
 class DatabaseHelper {
   static final DatabaseHelper _instance = DatabaseHelper._internal();
-  static Database? _database;
-  static const int _version = 8;
+  static sqlcipher.Database? _database;
+  static const int _version = 10;
   final WriteQueue _writeQueue = WriteQueue();
+  String? _encryptionKey;
 
   factory DatabaseHelper() => _instance;
   DatabaseHelper._internal();
 
-  Future<Database> get database async {
+  Future<sqlcipher.Database> get database async {
     if (_database != null) return _database!;
     _database = await _initDatabase();
     return _database!;
   }
 
-  Future<Database> _initDatabase() async {
+  Future<sqlcipher.Database> _initDatabase() async {
+    // Test / web: use unencrypted in-memory DB (no native SQLCipher support)
     if (kIsWeb || Platform.environment.containsKey('FLUTTER_TEST')) {
-      databaseFactory = databaseFactoryFfi;
-      return await openDatabase(inMemoryDatabasePath, version: _version, onCreate: _onCreate);
+      ffi.databaseFactory = ffi.databaseFactoryFfi;
+      return await ffi.openDatabase(
+        ffi.inMemoryDatabasePath,
+        version: _version,
+        onCreate: _onCreate,
+      );
     }
 
-    final dbPath = await getDatabasesPath();
+    _encryptionKey = await _getOrCreateEncryptionKey();
+    final dbPath = await sqlcipher.getDatabasesPath();
     final path = join(dbPath, 'rozz_database.db');
 
-    return await openDatabase(
+    try {
+      // Pre-SQLCipher installs keep the ledger plaintext ("SQLite format 3\0"
+      // header). Detect it BEFORE the keyed open: a leftover rollback journal
+      // from the plaintext era makes the keyed open throw open_failed
+      // (CANTOPEN, 14) instead of the NOTADB (26) the legacy migration keyed
+      // on — which silently bricked every read on those installs.
+      if (await _isPlaintext(path)) {
+        await _encryptExistingDatabase(path, _encryptionKey!);
+      } else {
+        // Early plaintext→encrypted migrations ran sqlcipher_export before the
+        // user_version header was preserved, leaving an encrypted DB stamped 0.
+        // Stamp it so sqflite upgrades instead of re-creating the tables.
+        await _repairZeroVersion(path, _encryptionKey!);
+      }
+      return await _openEncrypted(path);
+    } on sqlcipher.DatabaseException catch (e) {
+      if (!_isNotADatabase(e)) rethrow;
+      // v8 and earlier kept the ledger in plaintext — SQLCipher can't open
+      // that with a key, so convert it in place before the first encrypted
+      // open. Without this, every existing install would lose its ledger.
+      await _encryptExistingDatabase(path, _encryptionKey!);
+      return _openEncrypted(path);
+    }
+  }
+
+  Future<sqlcipher.Database> _openEncrypted(String path) {
+    return sqlcipher.openDatabase(
       path,
+      password: _encryptionKey!,
       version: _version,
       onConfigure: (db) async {
         await db.rawQuery('PRAGMA journal_mode=WAL');
         await db.rawQuery('PRAGMA synchronous=NORMAL');
-        // Native (Kotlin) writes to the same DB file — avoid SQLITE_BUSY drops.
         await db.rawQuery('PRAGMA busy_timeout=5000');
       },
       onCreate: _onCreate,
@@ -43,7 +80,124 @@ class DatabaseHelper {
     );
   }
 
-  Future<void> _onCreate(Database db, int version) async {
+  /// SQLCipher cannot open a plaintext SQLite file with a key ("file is not a
+  /// database", code 26). The documented plaintext→encrypted path is to open
+  /// the file in plaintext mode (empty key), attach an encrypted copy, export
+  /// into it, then swap the files. `PRAGMA rekey` does NOT work here — it only
+  /// re-keys an already-encrypted database.
+  Future<void> _encryptExistingDatabase(String path, String key) async {
+    final encPath = '$path.enc';
+    final encFile = File(encPath);
+    if (await encFile.exists()) await encFile.delete();
+
+    // A hot rollback journal from the plaintext era can't be rolled back by
+    // SQLCipher's plaintext-compat mode (readonly). The DB header itself is
+    // valid, so drop the sidecars — the whole file is being replaced below.
+    for (final suffix in ['-journal', '-wal', '-shm']) {
+      final side = File('$path$suffix');
+      if (await side.exists()) await side.delete();
+    }
+
+    // Empty password = SQLCipher plaintext-compatibility mode.
+    final plain = await sqlcipher.openDatabase(path);
+    try {
+      // sqlcipher_export copies schema + data but NOT the user_version header,
+      // so without this the encrypted file would reopen as version 0 and sqflite
+      // would run onCreate against the exported tables ("already exists").
+      final oldVersion = await plain.getVersion();
+      await plain.execute("ATTACH DATABASE '$encPath' AS encrypted KEY '$key'");
+      // sqlcipher_export is a SELECT — sqflite's execute() rejects queries on
+      // Android ("rawQuery only"), so read the result, don't execute it.
+      await plain.rawQuery("SELECT sqlcipher_export('encrypted')");
+      await plain.execute('PRAGMA encrypted.user_version = $oldVersion');
+      await plain.execute('DETACH DATABASE encrypted');
+    } finally {
+      await plain.close();
+    }
+
+    // The encrypted copy becomes the live DB; drop plaintext + any sidecars.
+    await File(path).delete();
+    await encFile.rename(path);
+    for (final suffix in ['-wal', '-shm', '-journal']) {
+      final side = File('$path$suffix');
+      if (await side.exists()) await side.delete();
+    }
+  }
+
+  /// Matches SQLITE_NOTADB (26) plus the two message shapes SQLCipher uses
+  /// when a file can't be opened with the given key.
+  static bool _isNotADatabase(sqlcipher.DatabaseException e) {
+    final msg = e.toString().toLowerCase();
+    return (e.getResultCode() ?? 0) == 26 ||
+        msg.contains('not a database') ||
+        msg.contains('file is encrypted');
+  }
+
+  /// An encrypted DB stamped user_version=0 (from an early buggy export)
+  /// makes sqflite fire onCreate against existing tables. Detect and re-stamp
+  /// it to 2 — oldVersion=0 would run onCreate; 2 skips the v1 table rebuild
+  /// yet still walks every later onUpgrade migration (all IF NOT EXISTS / data
+  ///-preserving) over the exported schema.
+  Future<void> _repairZeroVersion(String path, String key) async {
+    final db = await sqlcipher.openDatabase(path, password: key);
+    try {
+      if (await db.getVersion() != 0) return;
+      await db.setVersion(2);
+    } finally {
+      await db.close();
+    }
+  }
+
+  /// True when [path] is a plaintext SQLite file (SQLCipher-less legacy DB):
+  /// the 16-byte magic "SQLite format 3\0". Encrypted SQLCipher files have
+  /// random bytes there and must NOT be re-exported.
+  static Future<bool> _isPlaintext(String path) async {
+    try {
+      final raf = await File(path).open(mode: FileMode.read);
+      try {
+        final header = await raf.read(16);
+        if (header.length != 16) return false;
+        return String.fromCharCodes(header) == 'SQLite format 3\u0000';
+      } finally {
+        await raf.close();
+      }
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Generates or retrieves the 256-bit database encryption key.
+  ///
+  /// Lives in Keystore-backed secure storage so a disk image or rooted device
+  /// can't read key and ciphertext together. Legacy builds kept a plaintext
+  /// `.db_key` file next to the DB — migrate it in once, then delete it.
+  Future<String> _getOrCreateEncryptionKey() async {
+    const storageKey = 'db_encryption_key';
+    final storage = SecureStorageService();
+
+    final stored = await storage.readValue(storageKey);
+    if (stored != null && stored.isNotEmpty) return stored;
+
+    final dbPath = await sqlcipher.getDatabasesPath();
+    final keyFile = File('$dbPath/.db_key');
+    if (await keyFile.exists()) {
+      final legacy = (await keyFile.readAsString()).trim();
+      if (legacy.isNotEmpty) {
+        await storage.writeValue(storageKey, legacy);
+        await keyFile.delete();
+        return legacy;
+      }
+    }
+
+    // Generate new 256-bit key using Dart's cryptographically secure RNG.
+    final random = Random.secure();
+    final values = List<int>.generate(32, (_) => random.nextInt(256));
+    final key = base64Url.encode(values);
+    await storage.writeValue(storageKey, key);
+    return key;
+  }
+
+  Future<void> _onCreate(sqlcipher.Database db, int version) async {
     await db.execute(_transactionsDdl);
     await db.execute(_mabDdl);
     await db.execute(_rawInboxDdl);
@@ -51,21 +205,26 @@ class DatabaseHelper {
     await db.execute(_appMetaDdl);
     await db.execute(_dismissedSubscriptionsDdl);
     await db.execute(_txDedupeIndexDdl);
+    await db.execute(_txDateIndexDdl);
     await _seedDismissedSubscriptions(db);
   }
 
   /// v1 had a corrupted transactions DDL (literal "\n" broke the category column),
-  /// so existing installs need the table rebuilt. onUpgrade is idempotent and also
-  /// covers the cold-start case where Kotlin created the DB file first (no onCreate).
-  Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
-    await db.execute('CREATE TABLE IF NOT EXISTS transactions_new $_transactionsBody');
-    await db.execute('''
-      INSERT INTO transactions_new (date, amount, direction, label_type, recipient_name, upi_id, balance_after, source, upi_ref_number, raw_sms, category)
-      SELECT date, amount, direction, label_type, recipient_name, upi_id, balance_after, COALESCE(source, 'sms'), upi_ref_number, raw_sms, category FROM transactions
-      WHERE EXISTS (SELECT 1 FROM transactions)
-    ''');
-    await db.execute('DROP TABLE IF EXISTS transactions');
-    await db.execute('ALTER TABLE transactions_new RENAME TO transactions');
+  /// so v1 installs need the table rebuilt. For v2+ the schema is already correct;
+  /// the rebuild is skipped so a 50k-row copy doesn't run on every future bump.
+  /// The guard also covers the cold-start case where Kotlin created the DB file
+  /// first (no onCreate → onUpgrade(0, newVersion)).
+  Future<void> _onUpgrade(sqlcipher.Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 2) {
+      await db.execute('CREATE TABLE IF NOT EXISTS transactions_new $_transactionsBody');
+      await db.execute('''
+        INSERT INTO transactions_new (date, amount, direction, label_type, recipient_name, upi_id, balance_after, source, upi_ref_number, raw_sms, category)
+        SELECT date, amount, direction, label_type, recipient_name, upi_id, balance_after, COALESCE(source, 'sms'), upi_ref_number, raw_sms, category FROM transactions
+        WHERE EXISTS (SELECT 1 FROM transactions)
+      ''');
+      await db.execute('DROP TABLE IF EXISTS transactions');
+      await db.execute('ALTER TABLE transactions_new RENAME TO transactions');
+    }
     await db.execute(_mabDdl);
     await db.execute(_rawInboxDdl);
     await db.execute(_dismissedSubscriptionsDdl);
@@ -89,6 +248,13 @@ class DatabaseHelper {
       await db.execute(_txDedupeIndexDdl);
     } else {
       await db.execute(_txDedupeIndexDdl);
+    }
+
+    if (oldVersion < 10) {
+      // v10: index on transaction date. All list reads sort by date DESC and
+      // month loads use a date range, so a bare date index makes every screen
+      // load index-backed instead of a full scan.
+      await db.execute(_txDateIndexDdl);
     }
 
     if (oldVersion < 4) {
@@ -130,7 +296,7 @@ class DatabaseHelper {
       final suffix = await _extractAccountSuffix(db);
       if (suffix != null) {
         await db.insert('app_meta', {'key': 'account_suffix', 'value': suffix},
-            conflictAlgorithm: ConflictAlgorithm.replace);
+            conflictAlgorithm: sqlcipher.ConflictAlgorithm.replace);
       }
     }
 
@@ -163,7 +329,7 @@ class DatabaseHelper {
   static final _accountRe = RegExp(r'a\/?c\b', caseSensitive: false);
 
   /// Last 4 digits of the account number from any SMS, e.g. "A/c XX4321" → 4321.
-  static Future<String?> _extractAccountSuffix(Database db) async {
+  static Future<String?> _extractAccountSuffix(sqlcipher.Database db) async {
     final rows = await db.rawQuery(
       "SELECT raw_sms FROM transactions WHERE raw_sms LIKE '%A/c%' OR raw_sms LIKE '%a/c%' LIMIT 20",
     );
@@ -249,11 +415,11 @@ class DatabaseHelper {
     'jeejo',
   ];
 
-  Future<void> _seedDismissedSubscriptions(Database db) async {
+  Future<void> _seedDismissedSubscriptions(sqlcipher.Database db) async {
     final batch = db.batch();
     for (final key in _seededDismissedSubscriptions) {
       batch.insert('dismissed_subscriptions', {'merchant_key': key},
-          conflictAlgorithm: ConflictAlgorithm.ignore);
+          conflictAlgorithm: sqlcipher.ConflictAlgorithm.ignore);
     }
     await batch.commit(noResult: true);
   }
@@ -279,14 +445,19 @@ class DatabaseHelper {
   static const String _txDedupeIndexDdl =
       'CREATE UNIQUE INDEX IF NOT EXISTS idx_tx_dedupe ON transactions(direction, amount, date, COALESCE(balance_after, -1), raw_sms)';
 
+  /// Every transaction read sorts by date DESC (list, month, balance), so a
+  /// bare date index turns those full scans into index-backed orderings.
+  static const String _txDateIndexDdl =
+      'CREATE INDEX IF NOT EXISTS idx_tx_date ON transactions(date DESC)';
+
   /// For read operations
-  Future<dynamic> query(Future<dynamic> Function(Database db) operation) async {
+  Future<dynamic> query(Future<dynamic> Function(sqlcipher.Database db) operation) async {
     final db = await database;
     return await operation(db);
   }
 
   /// For write operations (queued)
-  Future<dynamic> write(Future<dynamic> Function(Database db) operation) async {
+  Future<dynamic> write(Future<dynamic> Function(sqlcipher.Database db) operation) async {
     return await _writeQueue.add(() async {
       final db = await database;
       return await operation(db);
@@ -294,7 +465,7 @@ class DatabaseHelper {
   }
 
   /// Generic execute
-  Future<dynamic> execute(Future<dynamic> Function(Database db) operation) async {
+  Future<dynamic> execute(Future<dynamic> Function(sqlcipher.Database db) operation) async {
     final db = await database;
     return await operation(db);
   }

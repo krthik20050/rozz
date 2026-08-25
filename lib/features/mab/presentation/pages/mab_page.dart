@@ -239,7 +239,7 @@ class _MabPageState extends State<MabPage> {
             decoration: BoxDecoration(
               color: RozzColors.s1,
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: RozzColors.gold.withOpacity(0.3)),
+              border: Border.all(color: RozzColors.gold.withValues(alpha: 0.3)),
             ),
             child: Row(
               children: [

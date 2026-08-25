@@ -51,14 +51,18 @@ class TransactionLocalDatasourceImpl implements TransactionLocalDatasource {
 
   @override
   Future<List<TransactionModel>> getTransactionsByMonth(int month, int year) async {
+    // ISO-8601 TEXT sorts lexicographically, so a half-open range over the
+    // month boundary is sargable (index-able) — strftime would force a full
+    // scan of every transaction on every month load.
+    final monthStart = '${year.toString().padLeft(4, '0')}-${month.toString().padLeft(2, '0')}-01';
+    final next = DateTime.utc(year, month + 1, 1);
+    final nextMonthStart =
+        '${next.year.toString().padLeft(4, '0')}-${next.month.toString().padLeft(2, '0')}-01';
     final List<Map<String, dynamic>> maps = await _databaseHelper.query((db) async {
       return await db.query(
         'transactions',
-        where: "strftime('%m', date) = ? AND strftime('%Y', date) = ?",
-        whereArgs: [
-          month.toString().padLeft(2, '0'),
-          year.toString(),
-        ],
+        where: 'date >= ? AND date < ?',
+        whereArgs: [monthStart, nextMonthStart],
         orderBy: 'date DESC',
       );
     });
@@ -69,8 +73,9 @@ class TransactionLocalDatasourceImpl implements TransactionLocalDatasource {
   Future<double?> getLastKnownBalance() async {
     // The real current balance is the newest EOD snapshot (recorded from HDFC's
     // daily balance-advice SMS into mab_history). A transaction's balance_after
-    // wins only when it's strictly NEWER than that snapshot — same-day the
-    // snapshot is the EOD truth, older transactions are stale.
+    // wins when it's at least as new as that snapshot — a same-day row in
+    // mab_history is the EOD background task's mid-day estimate, never a true
+    // end-of-day value, so a same-day transaction is fresher evidence.
     final eod = await _databaseHelper.query((db) async {
       final maps = await db.query(
         'mab_history',
@@ -94,7 +99,7 @@ class TransactionLocalDatasourceImpl implements TransactionLocalDatasource {
         return maps.first;
       });
       if (tx != null &&
-          (tx['date'] as String).substring(0, 10).compareTo(eod['date'] as String) > 0) {
+          (tx['date'] as String).substring(0, 10).compareTo(eod['date'] as String) >= 0) {
         return (tx['balance_after'] as num).toDouble();
       }
       return (eod['end_of_day_balance'] as num).toDouble();

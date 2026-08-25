@@ -40,6 +40,21 @@ void main() {
     expect(AiService.sseDeltas(['data: not-json', 'data: {"choices":[]}']), isEmpty);
   });
 
+  test('sseDeltas skips reasoning deltas (gpt-oss hidden CoT) and keeps content', () {
+    // GROQ's gpt-oss-120b streams reasoning_content during its thinking phase,
+    // then real content. The reasoning must not leak to the chat and empty
+    // reasoning chunks must not be treated as the answer.
+    const lines = [
+      'data: {"choices":[{"delta":{"role":"assistant","content":""}}]}',
+      'data: {"choices":[{"delta":{"reasoning_content":"Let me think"}}]}',
+      'data: {"choices":[{"delta":{"reasoning_content":" about the ledger"}}]}',
+      'data: {"choices":[{"delta":{"content":"Your spending"}}]}',
+      'data: {"choices":[{"delta":{"content":" is ₹4,200."}}]}',
+      'data: [DONE]',
+    ];
+    expect(AiService.sseDeltas(lines), ['Your spending', ' is ₹4,200.']);
+  });
+
   test('system prompt carries the date and formatting rules, no guardrails', () {
     final prompt = AiService.systemPromptFor('18 August 2026');
     expect(prompt, contains('18 August 2026'));

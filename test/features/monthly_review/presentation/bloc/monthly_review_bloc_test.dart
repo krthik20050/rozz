@@ -63,12 +63,13 @@ void main() {
     act: (bloc) => bloc.add(const LoadMonthlyReview(month: 8, year: 2026)),
     expect: () => [
       isA<MonthlyReviewLoading>(),
-      isA<MonthlyReviewLoaded>().having(
-        (s) => s.summary,
-        'summary',
-        isA<dynamic>().having((m) => m.received, 'received', 1000.0)
-          ..having((m) => m.spent, 'spent', 500.0),
-      ),
+isA<MonthlyReviewLoaded>().having(
+            (s) => s.summary,
+            'summary',
+            isA<dynamic>()
+                .having((m) => m.received, 'received', 1000.0)
+                .having((m) => m.spent, 'spent', 500.0),
+          ),
     ],
     verify: (_) {
       verify(() => mockRepository.getTransactionsByMonth(8, 2026)).called(1);

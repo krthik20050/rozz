@@ -12,9 +12,11 @@ import android.provider.Telephony
 import android.app.NotificationManager
 import android.content.ComponentName
 import android.content.Intent
+import java.io.File
 
 class MainActivity : FlutterActivity() {
     private val CHANNEL = "com.rozz/sms"
+    private val SECURITY_CHANNEL = "com.rozz/security"
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -41,6 +43,54 @@ class MainActivity : FlutterActivity() {
                 else -> result.notImplemented()
             }
         }
+
+        // Security channel: root detection
+        val securityChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, SECURITY_CHANNEL)
+        securityChannel.setMethodCallHandler { call, result ->
+            when (call.method) {
+                // checkRooted() spawns a process — keep it off the platform
+                // (main) thread to avoid an ANR.
+                "isDeviceRooted" -> Thread {
+                    runOnUiThread { result.success(checkRooted()) }
+                }.start()
+                else -> result.notImplemented()
+            }
+        }
+    }
+
+    private fun checkRooted(): Boolean {
+        try {
+            // Check for common root binaries
+            val rootPaths = arrayOf(
+                "/system/app/Superuser.apk",
+                "/system/bin/su",
+                "/system/xbin/su",
+                "/sbin/su",
+                "/data/local/xbin/su",
+                "/data/local/bin/su",
+                "/system/sd/xbin/su",
+                "/system/bin/failsafe/su",
+                "/data/local/su",
+                "/su/bin/su",
+                "/system/app/SuperSU.apk",
+                "/system/app/Manager.apk"
+            )
+            for (path in rootPaths) {
+                if (File(path).exists()) return true
+            }
+            // Check for test-keys build
+            val buildTags = Build.TAGS
+            if (buildTags != null && buildTags.contains("test-keys")) return true
+            // Try to execute "su" — throws if not available
+            val process = Runtime.getRuntime().exec(arrayOf("which", "su"))
+            val reader = process.inputStream.bufferedReader()
+            val result = reader.readLine()
+            reader.close()
+            if (result != null && result.contains("/su")) return true
+        } catch (_: Exception) {
+            // Exception = su not found = not rooted (safe)
+        }
+        return false
     }
 
     private fun isDefaultSmsHandler(): Boolean =

@@ -56,6 +56,10 @@ class _ChatRozzPageState extends State<ChatRozzPage> {
   /// not come back on every launch (memory-only flags made it a nag loop).
   static const _skipStorageKey = 'chat_skip';
 
+  // GROQ free tier: 8000 TPM (input + max_completion_tokens). A full ledger
+  // of rows exceeds it, so the context sends only the latest slice.
+  static const _maxLedgerRows = 100;
+
   static const _suggestions = [
     'how much did I spend this month?',
     'what\'s my MAB right now?',
@@ -175,8 +179,6 @@ class _ChatRozzPageState extends State<ChatRozzPage> {
   /// when the request is assembled.
   Future<String> _buildContext(String query) async {
     final state = context.read<InsightsBloc>().state;
-    if (state is! InsightsLoaded) return '';
-    final s = state.summary;
     final currency = NumberFormat.currency(locale: 'en_IN', symbol: '₹', decimalDigits: 0);
     // Device-local now, not the insights state (which may be stale if the
     // user hasn't refreshed this month) — the "as of" label keeps the model
@@ -186,19 +188,22 @@ class _ChatRozzPageState extends State<ChatRozzPage> {
 
     final lines = <String>[
       'Finance summary for ${DateFormat('MMMM yyyy').format(now)}, as of $asOf:',
-      'Received: ${currency.format(s.received)} (prior month: ${currency.format(s.priorReceived)})',
-      'Spent: ${currency.format(s.spent)} (prior month: ${currency.format(s.priorSpent)})',
-      'Saved: ${currency.format(s.saved)} (prior month: ${currency.format(s.priorSaved)})',
-      if (s.categories.isNotEmpty)
-        'Spending by category: ${s.categories.map((c) => '${c.category} ${currency.format(c.amount)}').join(', ')}',
-      if (state.incomeSources.isNotEmpty)
-        'Money in by sender: ${state.incomeSources.take(8).map((src) => '${src.recipient} ${currency.format(src.amount)} (${src.count}x)').join(', ')}',
-      if (state.recurringIncome.isNotEmpty)
-        'Recurring income: ${state.recurringIncome.take(5).map((r) => '${r.displayName} ~${currency.format(r.typicalAmount)}/mo, seen ${r.monthsSeen} months, ${r.arrivedThisMonth ? 'arrived this month' : 'not yet this month (expected ${r.expectedNext == null ? 'irregular' : DateFormat('d MMM').format(r.expectedNext!)})'}').join('; ')}',
-      if (state.subscriptions.isNotEmpty)
-        'Subscriptions: ${state.subscriptions.map((sub) => sub.amountVaries ? '${sub.merchant} ${currency.format(sub.minAmount)}-${currency.format(sub.maxAmount)}/mo (${sub.occurrences}x)' : '${sub.merchant} ${currency.format(sub.monthlyAmount)}/mo (${sub.occurrences}x)').join(', ')}',
-      if (state.upcomingCharges.isNotEmpty)
-        'Upcoming charges: ${state.upcomingCharges.map((c) => '${c.merchant} ${currency.format(c.amount)} on ${DateFormat('d MMM').format(c.predictedDate)}').join(', ')}',
+      if (state is InsightsLoaded) ...[
+        'Received: ${currency.format(state.summary.received)} (prior month: ${currency.format(state.summary.priorReceived)})',
+        'Spent: ${currency.format(state.summary.spent)} (prior month: ${currency.format(state.summary.priorSpent)})',
+        'Saved: ${currency.format(state.summary.saved)} (prior month: ${currency.format(state.summary.priorSaved)})',
+        if (state.summary.categories.isNotEmpty)
+          'Spending by category: ${state.summary.categories.map((c) => '${c.category} ${currency.format(c.amount)}').join(', ')}',
+        if (state.incomeSources.isNotEmpty)
+          'Money in by sender: ${state.incomeSources.take(8).map((src) => '${src.recipient} ${currency.format(src.amount)} (${src.count}x)').join(', ')}',
+        if (state.recurringIncome.isNotEmpty)
+          'Recurring income: ${state.recurringIncome.take(5).map((r) => '${r.displayName} ~${currency.format(r.typicalAmount)}/mo, seen ${r.monthsSeen} months, ${r.arrivedThisMonth ? 'arrived this month' : 'not yet this month (expected ${r.expectedNext == null ? 'irregular' : DateFormat('d MMM').format(r.expectedNext!)})'}').join('; ')}',
+        if (state.subscriptions.isNotEmpty)
+          'Subscriptions: ${state.subscriptions.map((sub) => sub.amountVaries ? '${sub.merchant} ${currency.format(sub.minAmount)}-${currency.format(sub.maxAmount)}/mo (${sub.occurrences}x)' : '${sub.merchant} ${currency.format(sub.monthlyAmount)}/mo (${sub.occurrences}x)').join(', ')}',
+        if (state.upcomingCharges.isNotEmpty)
+          'Upcoming charges: ${state.upcomingCharges.map((c) => '${c.merchant} ${currency.format(c.amount)} on ${DateFormat('d MMM').format(c.predictedDate)}').join(', ')}',
+      ] else
+        'Monthly summary: not yet computed — insights pending.',
     ];
 
     // MAB forecast + penalty for the current month.
@@ -217,11 +222,20 @@ class _ChatRozzPageState extends State<ChatRozzPage> {
       );
     }
 
-    // Full ledger, every transaction, so the AI can answer about any month.
+    // Full ledger so the AI can answer about any month — but GROQ's free
+    // tier caps tokens-per-minute at 8000 (input + max_completion_tokens),
+    // so a whole year of rows blows the request. Cap to the latest 100 and
+    // say so; the model must not treat a truncated list as complete.
     final txs = await widget.transactionRepository.getAllTransactions();
     if (txs.isNotEmpty) {
-      lines.add('All transactions (newest first):');
-      for (final t in txs) {
+      final shown = txs.length <= _maxLedgerRows
+          ? txs
+          : txs.sublist(0, _maxLedgerRows);
+      lines.add(shown.length < txs.length
+          ? 'Transactions (newest first, latest ${shown.length} of ${txs.length} shown — '
+              'the rest are omitted):'
+          : 'All transactions (newest first):');
+      for (final t in shown) {
         final dt = DateTime.parse(t.date).toLocal();
         final brand = MerchantBrandResolver.resolve(
           t.recipientName ?? '',
@@ -229,9 +243,12 @@ class _ChatRozzPageState extends State<ChatRozzPage> {
           t.direction,
           rawSms: t.rawSms ?? '',
         );
+        final senderLabels = state is InsightsLoaded
+            ? state.senderLabels
+            : const <String, String>{};
         final senderLabel = resolveSenderLabel(
           t.upiId ?? t.recipientName ?? '',
-          state.senderLabels,
+          senderLabels,
         );
         final name = senderLabel ?? brand.name;
         lines.add(
@@ -276,6 +293,15 @@ class _ChatRozzPageState extends State<ChatRozzPage> {
         .toList();
 
     try {
+      // Refresh the summary blocs so the answer reflects the current DB, not
+      // a stale snapshot. BLoC dispatch is async — we do NOT await; the ledger
+      // below is read fresh anyway, so this reload lands by the next question.
+      final now = DateTime.now();
+      context.read<MabBloc>().add(
+            LoadMabStatus(month: now.month, year: now.year, now: now),
+          );
+      context.read<InsightsBloc>().add(LoadInsights(now: now));
+
       _streamSub = widget.aiService
           .streamFinancialAssistant(
             text,

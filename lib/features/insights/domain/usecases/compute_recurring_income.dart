@@ -22,7 +22,8 @@ class ComputeRecurringIncome {
     required Map<String, String> contactPhoneToName,
     required DateTime now,
   }) {
-    final monthKey = (DateTime d) => '${d.year}-${d.month.toString().padLeft(2, '0')}';
+    String monthKey(DateTime d) =>
+        '${d.year}-${d.month.toString().padLeft(2, '0')}';
     final currentMonth = monthKey(now);
 
     // Group credit transactions per sender key.

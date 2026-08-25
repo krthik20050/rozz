@@ -44,7 +44,7 @@ class AiService {
   static const String legacyApiKeyStorageKey = 'GEMINI_API_KEY';
 
   /// Cap responses so a chat reply never burns the free token budget.
-  static const int _maxTokens = 1024;
+  static const int _maxTokens = 2048;
 
   static final _upiRe = RegExp(r'\b[\w.+-]+@[\w.-]+\b');
   static final _phoneRe = RegExp(r'\b\d{10}\b');
@@ -173,7 +173,19 @@ class AiService {
     final resolvedModel = model ??
         (provider == _AiProvider.groq ? _groqChatModel : _openRouterModel);
     final body = isOpenAi
-        ? _openAiBody(resolvedModel, history, prompt, systemPrompt)
+        ? _openAiBody(
+            resolvedModel,
+            history,
+            prompt,
+            systemPrompt,
+            // gpt-oss is a hidden-CoT reasoning model: without include_reasoning
+            // false it emits reasoning deltas the chat never shows, and the
+            // budget it spends thinking still counts toward max_completion_tokens.
+            // Keep the thinking hidden (chat UX) unless this call is the fast
+            // categorization path (groq/compound-mini, which has no CoT).
+            hideReasoning:
+                provider == _AiProvider.groq && model == null,
+          )
         : _geminiBody(history, prompt, systemPrompt);
 
     for (var attempt = 0; attempt <= (retryOnRateLimit ? 2 : 0); attempt++) {
@@ -218,11 +230,16 @@ class AiService {
     String model,
     List<Map<String, String>> history,
     String prompt,
-    String? systemPrompt,
-  ) =>
+    String? systemPrompt, {
+    bool hideReasoning = false,
+  }) =>
       jsonEncode({
         'model': model,
-        'max_tokens': _maxTokens,
+        // Reasoning models (gpt-oss) reject `max_tokens`; GROQ/OpenRouter use
+        // `max_completion_tokens`. Sending the wrong field makes the whole
+        // budget vanish inside the hidden CoT and returns empty content.
+        'max_completion_tokens': _maxTokens,
+        if (hideReasoning) 'include_reasoning': false,
         'messages': [
           if (systemPrompt != null)
             {'role': 'system', 'content': systemPrompt},
@@ -388,8 +405,9 @@ class AiService {
         : _openRouterModel;
     final body = jsonEncode({
       'model': model,
-      'max_tokens': _maxTokens,
+      'max_completion_tokens': _maxTokens,
       'stream': true,
+      if (provider == _AiProvider.groq) 'include_reasoning': false,
       'messages': [
         {'role': 'system', 'content': systemPromptFor(today)},
         ...history.map((m) => {
@@ -424,7 +442,16 @@ class AiService {
       return;
     }
     if (response.statusCode != 200) {
-      debugPrint('Chat stream status: ${response.statusCode}');
+      // Read the body: GROQ returns the real reason in it (e.g. 413 with the
+      // TPM limit), which is far more useful than a bare status code.
+      var detail = '';
+      try {
+        detail = await response.stream
+            .transform(utf8.decoder)
+            .join()
+            .timeout(const Duration(seconds: 5));
+      } catch (_) {}
+      debugPrint('Chat stream status: ${response.statusCode} ($detail)');
       yield 'I couldn\'t reach my AI service right now (it may be rate-limited '
           'or out of credits). Try again in a moment.';
       return;
