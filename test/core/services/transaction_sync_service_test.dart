@@ -74,19 +74,19 @@ void main() {
     }
   }
 
-  test('drainPendingSms consumes parseable lines and appends unparseable back to the live file', () async {
+  test('drainPendingSms consumes transactions and drops non-transaction lines', () async {
     await resetJsonlFiles();
     final dir = await getDatabasesPath();
     final file = File('$dir/raw_inbox.jsonl');
     final now = DateTime.now().millisecondsSinceEpoch;
-    final unparseable = jsonEncode({
+    final promo = jsonEncode({
       'body': 'HDFCBK: Promotional offer text without amount',
       'received_at': now,
     });
     await file.writeAsString([
       jsonEncode({'body': mockHdfcSms[0]['body'], 'received_at': now}),
       jsonEncode({'body': mockHdfcSms[1]['body'], 'received_at': now}),
-      unparseable,
+      promo,
     ].join('\n'), flush: true);
 
     final drained = await sync.drainPendingSms();
@@ -94,9 +94,65 @@ void main() {
     expect(drained, 2);
     final all = await repo.getAllTransactions();
     expect(all.length, 2);
-    // Unparseable lines survive in the live file (nothing was truncated away).
-    expect((await file.readAsString()).trim(), unparseable);
+    // Non-transaction lines are consumed and dropped — re-appending them made
+    // the queue grow on every drain. Nothing is left to re-process.
+    expect(await file.exists(), isFalse);
     expect(File('$dir/raw_inbox.draining.jsonl').existsSync(), isFalse);
+  });
+
+  test('drainPendingSms does not duplicate non-transaction lines across drains', () async {
+    await resetJsonlFiles();
+    final dir = await getDatabasesPath();
+    final file = File('$dir/raw_inbox.jsonl');
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final promo = jsonEncode({
+      'body': 'HDFCBK: Promotional offer text without amount',
+      'received_at': now,
+    });
+    await file.writeAsString(promo, flush: true);
+
+    for (var i = 0; i < 3; i++) {
+      await sync.drainPendingSms();
+    }
+
+    // The promo is dropped after the first drain and never re-appended, so
+    // repeated drains neither grow the file nor spam parse failures.
+    expect(await file.exists(), isFalse);
+    expect(File('$dir/raw_inbox.draining.jsonl').existsSync(), isFalse);
+    expect((await repo.getAllTransactions()).length, 0);
+  });
+
+  test('drainPendingSms recovers records joined on one corrupted line', () async {
+    await resetJsonlFiles();
+    final dir = await getDatabasesPath();
+    final file = File('$dir/raw_inbox.jsonl');
+    final now = DateTime.now().millisecondsSinceEpoch;
+    // A corrupted line: two JSON objects concatenated with no newline. The
+    // second is a real credit alert that must be recovered, not lost.
+    final joined = jsonEncode({'body': 'HDFCBK: screen time usage 8h 17m', 'received_at': now}) +
+        jsonEncode({'body': mockHdfcSms[1]['body'], 'received_at': now});
+    await file.writeAsString(joined, flush: true);
+
+    final drained = await sync.drainPendingSms();
+
+    // The credit alert survives; the non-transaction half is dropped.
+    expect(drained, 1);
+    final all = await repo.getAllTransactions();
+    expect(all.length, 1);
+    expect(await file.exists(), isFalse);
+  });
+
+  test('splitJoinedJson splits only at string-safe boundaries', () {
+    final a = jsonEncode({'body': 'x}{y', 'received_at': 1});
+    final b = jsonEncode({'body': 'z', 'received_at': 2});
+    final parts = TransactionSyncService.splitJoinedJson('$a$b');
+    expect(parts.length, 2);
+    expect(parts[0], a);
+    expect(parts[1], b);
+
+    // A '}{' inside a JSON string value must NOT be split.
+    final inside = jsonEncode({'body': 'a}{b', 'received_at': 3});
+    expect(TransactionSyncService.splitJoinedJson(inside).length, 1);
   });
 
   test('drainPendingSms recovers a crashed .draining file then drains the live file', () async {
@@ -126,7 +182,7 @@ void main() {
     expect(file.existsSync(), isFalse);
   });
 
-  test('drainPendingSms never truncates live-file content it did not consume', () async {
+  test('drainPendingSms consumes the live file and drops a crashed non-transaction leftover', () async {
     await resetJsonlFiles();
     final dir = await getDatabasesPath();
     final file = File('$dir/raw_inbox.jsonl');
@@ -136,8 +192,8 @@ void main() {
       'body': 'HDFCBK: Promotional offer text without amount',
       'received_at': now,
     });
-    // The crashed drain holds an unparseable line; the live file was appended
-    // to after the original rename and must not be truncated by this drain.
+    // The crashed drain holds a non-transaction line; the live file was
+    // appended to after the original rename.
     await drainFile.writeAsString(leftover, flush: true);
     await file.writeAsString(
       jsonEncode({'body': mockHdfcSms[0]['body'], 'received_at': now}),
@@ -146,12 +202,12 @@ void main() {
 
     final drained = await sync.drainPendingSms();
 
-    // The post-rename live line is consumed as a fresh file, the crashed
-    // leftover survives in the live file — nothing dropped, nothing truncated.
+    // The post-rename live transaction is consumed; the crashed non-transaction
+    // leftover is dropped (it is not a transaction and would only duplicate).
     expect(drained, 1);
     final all = await repo.getAllTransactions();
     expect(all.length, 1);
-    expect((await file.readAsString()).trim(), leftover);
+    expect(await file.exists(), isFalse);
     expect(drainFile.existsSync(), isFalse);
   });
 }

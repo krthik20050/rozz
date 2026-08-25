@@ -170,58 +170,118 @@ class TransactionSyncService {
     return drained;
   }
 
-  /// Parses + persists every line in [source], appending any line that failed
-  /// to parse or persist back to the live [liveFile]. Append mode never
+  /// Parses + persists every line in [source], re-appending only lines that hit
+  /// a transient failure so the next drain retries them. Append mode never
   /// truncates, so the write cannot collide with a concurrent Kotlin append.
   /// Returns how many lines became transactions. Shared by the crash-recovery
   /// path and the normal path so the two can never drift apart.
+  ///
+  /// IMPORTANT: non-transaction lines (promos, OTPs, app notifications) and
+  /// corrupted lines are CONSUMED AND DROPPED, not re-appended. Re-appending
+  /// them on every drain made the handoff queue grow unboundedly and
+  /// re-processed the same bytes each time (a single malformed line multiplied
+  /// across the file). Genuine transactions are never dropped: they either
+  /// persist, or fail with a real DB error and land in [retries] for the next
+  /// drain.
   Future<int> _consumePendingLines(File source, File liveFile) async {
     var drained = 0;
     final lines = await source.readAsLines();
     if (lines.isEmpty) return 0;
-    // Keep unconsumed lines (unparseable, or persist failed) in the live file
-    // instead of truncating: on Android 13+ the system inbox backfill returns
-    // nothing unless ROZZ is the default SMS handler, so a dropped line here is
-    // a transaction lost forever — not re-captured.
-    final leftovers = <String>[];
+    final retries = <String>[];
     for (final line in lines) {
       if (line.trim().isEmpty) continue;
-      try {
-        final map = jsonDecode(line) as Map<String, dynamic>;
-        final body = map['body'] as String?;
-        if (body == null || body.trim().isEmpty) continue;
-        final parsed = _parser.parse(body);
-        if (parsed == null) {
-          leftovers.add(line);
-          continue;
+      for (final record in decodeRecords(line)) {
+        try {
+          final map = record as Map<String, dynamic>;
+          final body = map['body'] as String?;
+          if (body == null || body.trim().isEmpty) continue;
+          final parsed = _parser.parse(body);
+          // Not a transaction (promo/OTP/screen-time) — consume and drop.
+          if (parsed == null) continue;
+          final receivedAt = map['received_at'] is int
+              ? DateTime.fromMillisecondsSinceEpoch(
+                  map['received_at'] as int,
+                  isUtc: true,
+                )
+              : null;
+          parsed['date'] ??= receivedAt?.toIso8601String();
+          final persisted = await _persistParsed(parsed, body, receivedAt: receivedAt);
+          if (!persisted) {
+            // Retry only real transactions/snapshots. A no-amount "unknown"
+            // (e.g. screen-time usage) is not a transaction — drop it.
+            if (parsed['amount'] != null ||
+                parsed['label_type'] == 'balance_snapshot') {
+              retries.add(jsonEncode(record));
+            }
+            continue;
+          }
+          drained++;
+        } catch (e) {
+          debugPrint('Pending SMS line failed: $e');
+          // Unrecoverable — dropped, not re-appended (would duplicate forever).
         }
-        final receivedAt = map['received_at'] is int
-            ? DateTime.fromMillisecondsSinceEpoch(
-                map['received_at'] as int,
-                isUtc: true,
-              )
-            : null;
-        parsed['date'] ??= receivedAt?.toIso8601String();
-        final persisted = await _persistParsed(parsed, body, receivedAt: receivedAt);
-        if (!persisted) {
-          leftovers.add(line);
-          continue;
-        }
-        drained++;
-      } catch (e) {
-        debugPrint('Pending SMS line failed: $e');
-        leftovers.add(line);
       }
     }
-    if (leftovers.isNotEmpty) {
+    if (retries.isNotEmpty) {
       final needsSep = await _fileNeedsLeadingNewline(liveFile);
       await liveFile.writeAsString(
-        '${needsSep ? '\n' : ''}${leftovers.join('\n')}\n',
+        '${needsSep ? '\n' : ''}${retries.join('\n')}\n',
         mode: FileMode.append,
         flush: true,
       );
     }
     return drained;
+  }
+
+  /// Decodes one JSONL line into one or more records. A well-formed line yields
+  /// a single record; a corrupted line that joined several objects without a
+  /// separator (`}{`) is split at string-safe boundaries so a stuck transaction
+  /// is recovered instead of lost forever. Returns [] when nothing decodes.
+  @visibleForTesting
+  static List<dynamic> decodeRecords(String line) {
+    try {
+      return [jsonDecode(line)];
+    } catch (_) {
+      final records = <dynamic>[];
+      for (final part in splitJoinedJson(line)) {
+        try {
+          records.add(jsonDecode(part));
+        } catch (_) {
+          // Unrecoverable chunk — skip it.
+        }
+      }
+      return records;
+    }
+  }
+
+  /// Splits a corrupted line containing several JSON objects joined without a
+  /// separator (`}{`) at boundaries that are NOT inside a JSON string value, so
+  /// string data containing "}{" isn't torn apart. Visible for testing.
+  @visibleForTesting
+  static List<String> splitJoinedJson(String line) {
+    final parts = <String>[];
+    var start = 0;
+    var inString = false;
+    var escaped = false;
+    for (var i = 0; i < line.length - 1; i++) {
+      final c = line[i];
+      if (inString) {
+        if (escaped) {
+          escaped = false;
+        } else if (c == r'\') {
+          escaped = true;
+        } else if (c == '"') {
+          inString = false;
+        }
+      } else if (c == '"') {
+        inString = true;
+      } else if (c == '}' && line[i + 1] == '{') {
+        parts.add(line.substring(start, i + 1));
+        start = i + 1;
+      }
+    }
+    parts.add(line.substring(start));
+    return parts;
   }
 
   /// Whether [f] exists, is non-empty, and does not end with a newline — i.e.
