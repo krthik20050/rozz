@@ -732,27 +732,30 @@ class _ChatRozzPageState extends State<ChatRozzPage> {
   }
 
   MarkdownStyleSheet _mdStyle() {
-    // flutter_markdown_plus's MarkdownStyleSheet.fromTheme asserts that
-    // textTheme.bodyMedium.fontSize is non-null (and later does `fontSize!`
-    // on it), but ThemeData.dark().textTheme leaves font sizes unset in
-    // current Flutter — so rendering ANY assistant reply crashed with an
-    // assertion (debug) / TypeError (release). apply(fontSizeFactor: 1.0)
-    // stamps an explicit 14px base onto every style that lacks one.
-    final base = MarkdownStyleSheet.fromTheme(
-      ThemeData(
-        brightness: Brightness.dark,
-        scaffoldBackgroundColor: RozzColors.bg,
-        textTheme: GoogleFonts.dmSansTextTheme(
-          ThemeData.dark().textTheme.apply(fontSizeFactor: 1.0),
-        ),
-      ),
+    // Build the sheet directly instead of MarkdownStyleSheet.fromTheme: that
+    // factory asserts textTheme.bodyMedium.fontSize != null (and then does
+    // `fontSize!` on it for code blocks), but Flutter's default text theme
+    // leaves font sizes unset — so rendering ANY assistant reply crashed with
+    // an assertion (debug) / TypeError (release). Explicit sizes are also
+    // predictable: they don't drift with the ambient theme.
+    final body = GoogleFonts.dmSans(
+      fontSize: 14,
+      height: 1.55,
+      color: RozzColors.textPrimary,
     );
-    return base.copyWith(
-      p: GoogleFonts.dmSans(
+    TextStyle heading(double size) => GoogleFonts.syne(
+          fontSize: size,
+          fontWeight: FontWeight.bold,
+          color: RozzColors.textPrimary,
+        );
+    return MarkdownStyleSheet(
+      a: GoogleFonts.dmSans(
         fontSize: 14,
-        height: 1.55,
-        color: RozzColors.textPrimary,
+        color: RozzColors.accent,
+        decoration: TextDecoration.underline,
       ),
+      p: body,
+      pPadding: EdgeInsets.zero,
       strong: GoogleFonts.dmSans(
         fontSize: 14,
         height: 1.55,
@@ -764,33 +767,35 @@ class _ChatRozzPageState extends State<ChatRozzPage> {
         fontStyle: FontStyle.italic,
         color: RozzColors.textSecondary,
       ),
-      h1: GoogleFonts.syne(
-        fontSize: 17,
-        fontWeight: FontWeight.bold,
-        color: RozzColors.textPrimary,
-      ),
-      h2: GoogleFonts.syne(
-        fontSize: 15,
-        fontWeight: FontWeight.bold,
-        color: RozzColors.textPrimary,
-      ),
-      h3: GoogleFonts.syne(
+      del: GoogleFonts.dmSans(
         fontSize: 14,
-        fontWeight: FontWeight.bold,
-        color: RozzColors.textPrimary,
+        color: RozzColors.textMuted,
+        decoration: TextDecoration.lineThrough,
       ),
-      listBullet: GoogleFonts.dmSans(
-        fontSize: 14,
-        color: RozzColors.textPrimary,
-      ),
+      h1: heading(17),
+      h1Padding: const EdgeInsets.only(top: 8),
+      h2: heading(15),
+      h2Padding: const EdgeInsets.only(top: 6),
+      h3: heading(14),
+      h3Padding: const EdgeInsets.only(top: 4),
+      h4: heading(13),
+      h5: heading(13),
+      h6: heading(13),
       blockquote: GoogleFonts.dmSans(
         fontSize: 13,
         fontStyle: FontStyle.italic,
         color: RozzColors.textSecondary,
       ),
+      blockquotePadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       blockquoteDecoration: BoxDecoration(
         color: RozzColors.s1,
         borderRadius: BorderRadius.circular(8),
+      ),
+      img: body,
+      checkbox: body,
+      listBullet: GoogleFonts.dmSans(
+        fontSize: 14,
+        color: RozzColors.textPrimary,
       ),
       code: GoogleFonts.dmMono(
         fontSize: 13,
@@ -811,6 +816,7 @@ class _ChatRozzPageState extends State<ChatRozzPage> {
         height: 1.4,
         color: RozzColors.textPrimary,
       ),
+      tableHeadAlign: TextAlign.left,
       tableCellsPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       tableBorder: TableBorder.all(color: RozzColors.s3, width: 1),
     );
