@@ -1,6 +1,6 @@
 # ROZZ — Project Progress
 
-> Keep this file current. Updated last: 2026-08-25.
+> Keep this file current. Updated last: 2026-08-25 (ErrorBoundary).
 > Daily work log lives in `docs/daily-log/`.
 
 ## Phase 1 — App scaffold & UI (COMPLETE)
