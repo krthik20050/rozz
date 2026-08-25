@@ -732,11 +732,19 @@ class _ChatRozzPageState extends State<ChatRozzPage> {
   }
 
   MarkdownStyleSheet _mdStyle() {
+    // flutter_markdown_plus's MarkdownStyleSheet.fromTheme asserts that
+    // textTheme.bodyMedium.fontSize is non-null (and later does `fontSize!`
+    // on it), but ThemeData.dark().textTheme leaves font sizes unset in
+    // current Flutter — so rendering ANY assistant reply crashed with an
+    // assertion (debug) / TypeError (release). apply(fontSizeFactor: 1.0)
+    // stamps an explicit 14px base onto every style that lacks one.
     final base = MarkdownStyleSheet.fromTheme(
       ThemeData(
         brightness: Brightness.dark,
         scaffoldBackgroundColor: RozzColors.bg,
-        textTheme: GoogleFonts.dmSansTextTheme(ThemeData.dark().textTheme),
+        textTheme: GoogleFonts.dmSansTextTheme(
+          ThemeData.dark().textTheme.apply(fontSizeFactor: 1.0),
+        ),
       ),
     );
     return base.copyWith(
