@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:rozz/core/database/database_helper.dart';
+import 'package:rozz/core/services/error_boundary.dart';
 import 'package:rozz/core/security/clipboard_guard.dart';
 import 'package:rozz/core/security/root_detection_service.dart';
 import 'package:rozz/core/security/secure_storage_service.dart';
@@ -83,9 +84,21 @@ Future<void> _importDevApiKey(SecureStorageService storage) async {
   }
 }
 
-void main() async {
+void main() {
   WidgetsFlutterBinding.ensureInitialized();
 
+  // A crash must never show the raw red/grey error screen: framework errors
+  // and async crashes are caught, logged (console + crash_log.txt) and rendered
+  // as a calm on-brand fallback. runZonedGuarded catches anything that escapes
+  // the other handlers so the app keeps running instead of dying silently.
+  ErrorBoundary.install();
+  runZonedGuarded(
+    _bootstrapApp,
+    (error, stack) => ErrorBoundary.logUncaught(error, stack),
+  );
+}
+
+Future<void> _bootstrapApp() async {
   // Database Helper — NOT awaited here: it opens lazily on first use (blocs
   // fire after runApp and share the same lazy future), so the first frame is
   // never blocked on disk IO / migrations.
