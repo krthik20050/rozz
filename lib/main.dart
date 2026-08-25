@@ -85,13 +85,15 @@ Future<void> _importDevApiKey(SecureStorageService storage) async {
 }
 
 void main() {
-  WidgetsFlutterBinding.ensureInitialized();
-
   // A crash must never show the raw red/grey error screen: framework errors
   // and async crashes are caught, logged (console + crash_log.txt) and rendered
   // as a calm on-brand fallback. runZonedGuarded catches anything that escapes
   // the other handlers so the app keeps running instead of dying silently.
-  ErrorBoundary.install();
+  //
+  // ensureInitialized MUST run in the SAME zone as runApp (both live inside
+  // _bootstrapApp's guarded zone) — calling it here in the root zone while
+  // runApp runs in the guarded zone triggers Flutter's "Zone mismatch"
+  // warning on every launch.
   runZonedGuarded(
     _bootstrapApp,
     (error, stack) => ErrorBoundary.logUncaught(error, stack),
@@ -99,6 +101,9 @@ void main() {
 }
 
 Future<void> _bootstrapApp() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  ErrorBoundary.install();
+
   // Database Helper — NOT awaited here: it opens lazily on first use (blocs
   // fire after runApp and share the same lazy future), so the first frame is
   // never blocked on disk IO / migrations.
