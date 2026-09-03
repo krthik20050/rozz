@@ -1,7 +1,27 @@
 # ROZZ — Project Progress
 
-> Keep this file current. Updated last: 2026-09-03 (WhatsApp statement auto-import).
+> Keep this file current. Updated last: 2026-09-04 (ledger-open hardening).
 > Daily work log lives in `docs/daily-log/`.
+
+## 2026-09-04 — Ledger-open hardening (fresh-install + key-loss brick fixed)
+
+- **Fixed:** fresh installs bricked with "couldn't load your data" —
+  `_repairZeroVersion` opened (and thereby CREATED) the DB on a fresh install,
+  stamping an empty schema-less DB as version 2; the v3 migration then crashed
+  on `DELETE FROM transactions` ("no such table") on every open, forever.
+  The repair is now skipped when the file does not exist, and `_onUpgrade`
+  self-heals schema-less DBs by recreating the full schema first.
+- **Fixed:** Keystore key loss (hard kill, app update, backup restore) silently
+  regenerated a new key, then failed to decrypt the existing ledger (SQLCipher
+  code 26) — a permanent brick with no recovery. `_initDatabase` now checks
+  ledger health (decrypts + has the `transactions` table); an unreadable
+  ledger is quarantined to `rozz_database.db.broken-<ts>` and a fresh one is
+  created, instead of looping on "Failed to open database".
+- **Fixed:** `database` getter raced when multiple blocs fired at startup
+  (double-init, double-quarantine, leaked connections) — now single-flight.
+- **Tests:** 4 regression tests in `test/core/database/database_helper_upgrade_test.dart`
+  (upgrade self-heal, repair guard, health check, quarantine). **180 tests green,
+  analyze clean.**
 
 ## Phase 1 — App scaffold & UI (COMPLETE)
 
