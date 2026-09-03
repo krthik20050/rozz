@@ -1,6 +1,6 @@
 # ROZZ — Project Progress
 
-> Keep this file current. Updated last: 2026-08-25 (ErrorBoundary).
+> Keep this file current. Updated last: 2026-09-03 (WhatsApp statement auto-import).
 > Daily work log lives in `docs/daily-log/`.
 
 ## Phase 1 — App scaffold & UI (COMPLETE)
@@ -173,6 +173,35 @@
 - [x] 6 new tests (`error_boundary_test.dart`): handler install/reset, async
       error stays handled, crash log append + cap reset, fallback widget.
       **139 tests passing, `flutter analyze` clean.**
+
+## Today (2026-09-03) — WhatsApp statement auto-import (server + app)
+
+- [x] **New `statement_server/`** (Dart + shelf, 29 tests): WhatsApp Cloud API
+      webhook (GET verify handshake + POST messages → PDF documents), Graph
+      API media download + DELETE from Meta after processing, `pdftotext`
+      extraction, HDFC statement row parser (server copy of the app's),
+      one-Groq-call-per-statement categorization (JSON schema, 429 retries,
+      vocabulary mirrors merchant_brand_resolver), PII redaction before
+      storage (account/IFSC/phone/VPA/refs scrubbed from narrations), SQLite
+      WAL store with sha256 fingerprint dedupe, Bearer-authed sync API
+      (`/health`, `/status`, `/statements?since=`). Manual Meta setup guide
+      in `statement_server/README.md` (user must create WABA + register a
+      spare number + point the webhook). Smoke-tested live: health, auth 403,
+      handshake challenge, empty rows.
+- [x] **App sync path**: `StatementSyncApi` (HTTP client), `StatementSyncRepositoryImpl`
+      (pull rows → `TransactionModel` (source `statement`, ref →
+      `upi_ref_number` for cross-source dedupe, redacted narration → `raw_sms`
+      for re-sync idempotency) → ingest via existing datasource →
+      `uploaded_rows` fingerprints + `app_meta` last-sync), `StatementSyncBloc`,
+      and a Statement Sync page (Settings → Statement Sync (WhatsApp)) with
+      URL/API-key fields (secure storage), Sync now, last-sync status and a
+      privacy card.
+- [x] **Pre-existing parser bug fixed**: `_extractVpa` walked back across the
+      `UPI-DR-` prefix (dash is a legal VPA char) returning
+      `UPI-DR-swiggy@ybl`; two app parser tests were failing. Now a
+      marker-aware regex fast path + word-boundary fallback. Fixed in both the
+      app and server copies. App parser suite green again.
+- [x] 176 tests passing (was 139), `flutter analyze` clean.
 
 ## Open tasks
 
