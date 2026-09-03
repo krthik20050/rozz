@@ -4,6 +4,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:rozz/core/database/database_helper.dart';
+import 'package:rozz/features/merchants/data/datasources/merchant_linker.dart';
+import 'package:rozz/features/merchants/data/datasources/merchant_local_datasource.dart';
 import 'package:rozz/features/transactions/data/datasources/sms_parser.dart';
 import 'package:rozz/features/transactions/data/models/transaction_model.dart';
 import 'package:rozz/features/transactions/domain/repositories/transaction_repository.dart';
@@ -16,9 +18,50 @@ class TransactionSyncService {
   final TransactionRepository _repository;
   final DatabaseHelper _databaseHelper;
   final SmsParser _parser;
+
+  /// Optional merchant store — when provided, every ingested debit is linked
+  /// to its merchant and auto-adopts an unambiguous default description.
+  final MerchantLocalDatasource? _merchants;
+  MerchantLinker? _linker;
   static const _channel = MethodChannel('com.rozz/sms');
 
-  TransactionSyncService(this._repository, this._databaseHelper, this._parser);
+  TransactionSyncService(
+    this._repository,
+    this._databaseHelper,
+    this._parser, [
+    MerchantLocalDatasource? merchants,
+  ]) : _merchants = merchants;
+
+  MerchantLinker get _merchantLinker {
+    final merchants = _merchants;
+    if (merchants == null) {
+      throw StateError('merchant store not wired — pass MerchantLocalDatasource');
+    }
+    return _linker ??= MerchantLinker(merchants);
+  }
+
+  /// Stamps a parsed debit row with its merchant identity + default narration
+  /// (when the merchant has an unambiguous description) so future payments
+  /// auto-label from learned patterns. Balance snapshots and credits skip.
+  Future<void> _linkParsedRow(
+    Map<String, dynamic> parsed,
+    DatabaseExecutor? db,
+  ) async {
+    if (parsed['direction'] != 'debit') return;
+    if (_merchants == null) return;
+    final resolution = await _merchantLinker.resolve(
+      db,
+      recipientName: parsed['recipient_name'] as String?,
+      upiId: parsed['upi_id'] as String?,
+      labelType: parsed['label_type'] as String?,
+      direction: 'debit',
+    );
+    if (resolution == null) return;
+    parsed['merchant_key'] = resolution.merchantKey;
+    if (resolution.defaultDescription != null && !resolution.conflict) {
+      parsed['user_narration'] = resolution.defaultDescription;
+    }
+  }
 
   /// Routes a parsed SMS: balance snapshots go to mab_history (the real current
   /// balance), transactions go to the ledger. Returns true if it was persisted.
@@ -29,6 +72,7 @@ class TransactionSyncService {
     DateTime? receivedAt,
     DatabaseExecutor? db,
   }) async {
+    await _linkParsedRow(parsed, db);
     if (parsed['label_type'] == 'balance_snapshot') {
       final balance = (parsed['balance'] as num?)?.toDouble();
       if (balance == null) return false;

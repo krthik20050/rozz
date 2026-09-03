@@ -9,6 +9,28 @@ abstract class TransactionLocalDatasource {
   Future<double?> getLastKnownBalance();
   Future<List<TransactionModel>> getUncategorizedTransactions({int limit = 20});
   Future<void> updateCategory(int id, String category);
+
+  /// Half-open date-range read (ISO-8601 TEXT sorts lexicographically) — the
+  /// statement linker fetches its matching window with this.
+  Future<List<TransactionModel>> getTransactionsBetween(
+    String startIsoDate,
+    String endIsoDate,
+  );
+
+  /// Debits that have no merchant identity yet — the AI-cluster backfill pass
+  /// re-probes their aliases after a statement upload learns new merchants.
+  Future<List<TransactionModel>> getUnlinkedDebits({int limit = 400});
+
+  /// Stamp a statement-linked row with its merchant (optionally adopting the
+  /// merchant's default narration the same write).
+  Future<void> updateMerchantKey(
+    int id,
+    String merchantKey, {
+    String? userNarration,
+  });
+
+  /// Hard delete (undo-upload path). Never used outside the statement flow.
+  Future<void> deleteTransactions(List<int> ids);
 }
 
 class TransactionLocalDatasourceImpl implements TransactionLocalDatasource {
@@ -143,6 +165,67 @@ class TransactionLocalDatasourceImpl implements TransactionLocalDatasource {
         {'category': category},
         where: 'id = ?',
         whereArgs: [id],
+      );
+    });
+  }
+
+  @override
+  Future<List<TransactionModel>> getTransactionsBetween(
+    String startIsoDate,
+    String endIsoDate,
+  ) async {
+    final List<Map<String, dynamic>> maps =
+        await _databaseHelper.query((db) async {
+      return await db.query(
+        'transactions',
+        where: 'date >= ? AND date < ?',
+        whereArgs: [startIsoDate, endIsoDate],
+        orderBy: 'date ASC',
+      );
+    });
+    return List.generate(maps.length, (i) => TransactionModel.fromMap(maps[i]));
+  }
+
+  @override
+  Future<List<TransactionModel>> getUnlinkedDebits({int limit = 400}) async {
+    final List<Map<String, dynamic>> maps =
+        await _databaseHelper.query((db) async {
+      return await db.query(
+        'transactions',
+        where: "direction = 'debit' AND merchant_key IS NULL",
+        orderBy: 'date DESC',
+        limit: limit,
+      );
+    });
+    return List.generate(maps.length, (i) => TransactionModel.fromMap(maps[i]));
+  }
+
+  @override
+  Future<void> updateMerchantKey(
+    int id,
+    String merchantKey, {
+    String? userNarration,
+  }) async {
+    await _databaseHelper.write((db) async {
+      final values = <String, Object?>{'merchant_key': merchantKey};
+      if (userNarration != null) values['user_narration'] = userNarration;
+      await db.update(
+        'transactions',
+        values,
+        where: 'id = ?',
+        whereArgs: [id],
+      );
+    });
+  }
+
+  @override
+  Future<void> deleteTransactions(List<int> ids) async {
+    if (ids.isEmpty) return;
+    await _databaseHelper.write((db) async {
+      await db.delete(
+        'transactions',
+        where: 'id IN (${List.filled(ids.length, '?').join(',')})',
+        whereArgs: ids,
       );
     });
   }

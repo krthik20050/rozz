@@ -12,7 +12,7 @@ import 'write_queue.dart';
 class DatabaseHelper {
   static final DatabaseHelper _instance = DatabaseHelper._internal();
   static sqlcipher.Database? _database;
-  static const int _version = 10;
+  static const int _version = 11;
   final WriteQueue _writeQueue = WriteQueue();
   String? _encryptionKey;
 
@@ -204,8 +204,13 @@ class DatabaseHelper {
     await db.execute(_senderLabelsDdl);
     await db.execute(_appMetaDdl);
     await db.execute(_dismissedSubscriptionsDdl);
+    await db.execute(_merchantsDdl);
+    await db.execute(_merchantAliasesDdl);
+    await db.execute(_statementUploadsDdl);
+    await db.execute(_uploadedRowsDdl);
     await db.execute(_txDedupeIndexDdl);
     await db.execute(_txDateIndexDdl);
+    await db.execute(_txMerchantIndexDdl);
     await _seedDismissedSubscriptions(db);
   }
 
@@ -255,6 +260,31 @@ class DatabaseHelper {
       // month loads use a date range, so a bare date index makes every screen
       // load index-backed instead of a full scan.
       await db.execute(_txDateIndexDdl);
+    }
+
+    if (oldVersion < 11) {
+      // v11: merchant identity + user narration. The cold-start path can reach
+      // here with the transactions table ALREADY carrying the new columns
+      // (v0 -> v2 table rebuild below re-creates the table from the current
+      // body), so the ALTERs are column-existence-guarded — SQLite has no
+      // IF NOT EXISTS for ADD COLUMN.
+      await _ensureColumn(
+        db,
+        'transactions',
+        'merchant_key',
+        'ALTER TABLE transactions ADD COLUMN merchant_key TEXT',
+      );
+      await _ensureColumn(
+        db,
+        'transactions',
+        'user_narration',
+        'ALTER TABLE transactions ADD COLUMN user_narration TEXT',
+      );
+      await db.execute(_merchantsDdl);
+      await db.execute(_merchantAliasesDdl);
+      await db.execute(_statementUploadsDdl);
+      await db.execute(_uploadedRowsDdl);
+      await db.execute(_txMerchantIndexDdl);
     }
 
     if (oldVersion < 4) {
@@ -356,7 +386,9 @@ class DatabaseHelper {
         source           TEXT    NOT NULL,
         upi_ref_number   TEXT UNIQUE,
         raw_sms          TEXT,
-        category         TEXT
+        category         TEXT,
+        merchant_key     TEXT,
+        user_narration   TEXT
       )
   ''';
 
@@ -395,6 +427,56 @@ class DatabaseHelper {
       CREATE TABLE IF NOT EXISTS app_meta (
         key    TEXT PRIMARY KEY,
         value  TEXT NOT NULL
+      )
+  ''';
+
+  /// Canonical merchant payee — "the central ID" every raw spelling of a
+  /// payee resolves to. `description` is the user's canonical narration
+  /// ("dinner"); `conflict` is set when the user gave two DIFFERENT
+  /// descriptions for the same merchant — then auto-apply stops and the UI
+  /// asks instead of clobbering.
+  static const String _merchantsDdl = '''
+      CREATE TABLE IF NOT EXISTS merchants (
+        merchant_key   TEXT PRIMARY KEY,
+        canonical_name TEXT NOT NULL,
+        category       TEXT,
+        description    TEXT,
+        source         TEXT NOT NULL,
+        conflict       INTEGER NOT NULL DEFAULT 0,
+        tx_count       INTEGER NOT NULL DEFAULT 0,
+        last_seen      TEXT,
+        updated_at     TEXT NOT NULL
+      )
+  ''';
+
+  /// One normalized raw identity string -> canonical merchant. `alias_key` is
+  /// a MerchantKey slug / VPA local part; `kind` says where it came from.
+  static const String _merchantAliasesDdl = '''
+      CREATE TABLE IF NOT EXISTS merchant_aliases (
+        alias_key    TEXT PRIMARY KEY,
+        merchant_key TEXT NOT NULL,
+        kind         TEXT NOT NULL,
+        created_at   TEXT NOT NULL
+      )
+  ''';
+
+  /// One row per uploaded/pasted statement (for undo + audit).
+  static const String _statementUploadsDdl = '''
+      CREATE TABLE IF NOT EXISTS statement_uploads (
+        upload_id   TEXT PRIMARY KEY,
+        file_name   TEXT NOT NULL,
+        uploaded_at TEXT NOT NULL
+      )
+  ''';
+
+  /// Fingerprinted statement rows so re-uploading the same statement is a
+  /// provable no-op, plus the ledger linkage for undo.
+  static const String _uploadedRowsDdl = '''
+      CREATE TABLE IF NOT EXISTS uploaded_rows (
+        fingerprint TEXT PRIMARY KEY,
+        upload_id   TEXT NOT NULL,
+        tx_id       INTEGER,
+        action      TEXT NOT NULL
       )
   ''';
 
@@ -449,6 +531,25 @@ class DatabaseHelper {
   /// bare date index turns those full scans into index-backed orderings.
   static const String _txDateIndexDdl =
       'CREATE INDEX IF NOT EXISTS idx_tx_date ON transactions(date DESC)';
+
+  /// Merchant propagation + statement linking touch every row of a merchant in
+  /// one UPDATE — this index keeps those bulk writes indexed instead of a scan.
+  static const String _txMerchantIndexDdl =
+      'CREATE INDEX IF NOT EXISTS idx_tx_merchant ON transactions(merchant_key)';
+
+  /// SQLite can't express `ADD COLUMN IF NOT EXISTS`; guard v11 ALTERs with a
+  /// PRAGMA table_info probe so cold-start paths that already carry the column
+  /// never double-add it.
+  static Future<void> _ensureColumn(
+    sqlcipher.Database db,
+    String table,
+    String column,
+    String alterDdl,
+  ) async {
+    final info = await db.rawQuery('PRAGMA table_info($table)');
+    final has = info.any((row) => row['name'] == column);
+    if (!has) await db.execute(alterDdl);
+  }
 
   /// For read operations
   Future<dynamic> query(Future<dynamic> Function(sqlcipher.Database db) operation) async {

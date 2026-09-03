@@ -97,6 +97,8 @@ class TransactionBloc extends Bloc<TransactionEvent, TransactionState> {
             upiRefNumber: tx.upiRefNumber,
             rawSms: tx.rawSms,
             category: category,
+            merchantKey: tx.merchantKey,
+            userNarration: tx.userNarration,
           );
           
           await _repository.saveTransaction(updatedTx);

@@ -6,6 +6,7 @@ import 'package:rozz/core/theme/colors.dart';
 import 'package:rozz/features/transactions/domain/entities/transaction.dart';
 import 'package:rozz/features/transactions/presentation/bloc/transaction_bloc.dart';
 import 'package:rozz/features/transactions/presentation/widgets/transaction_card.dart';
+import 'package:rozz/features/merchants/presentation/pages/manage_merchants_page.dart';
 import 'package:rozz/features/transactions/presentation/widgets/transaction_details_sheet.dart';
 import 'package:rozz/features/home/presentation/widgets/home_skeletons.dart';
 import 'package:rozz/shared/widgets/skeleton.dart';
@@ -131,6 +132,15 @@ class _ActivityPageState extends State<ActivityPage> {
                   ),
                   Row(
                     children: [
+                      IconButton(
+                        onPressed: () => Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) => const ManageMerchantsPage(),
+                          ),
+                        ),
+                        icon: const Icon(Icons.storefront_outlined, color: RozzColors.textSecondary),
+                        tooltip: 'manage payees',
+                      ),
                       IconButton(
                         onPressed: _openSearch,
                         icon: const Icon(Icons.search, color: RozzColors.textSecondary),

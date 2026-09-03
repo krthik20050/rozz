@@ -14,6 +14,16 @@ class Transaction extends Equatable {
   final String? rawSms;
   final String? category; // Added for AI categorization
 
+  /// Canonical merchant key ("the central ID") this payment resolves to, e.g.
+  /// 'swiggy' or a slugged person/merchant name. Null until an alias or brand
+  /// match links it.
+  final String? merchantKey;
+
+  /// The user's own description for this payment ("dinner", "rent"). Copied
+  /// automatically from the merchant profile when unambiguous — the user's
+  /// word wins over every other name in the UI.
+  final String? userNarration;
+
   const Transaction({
     this.id,
     required this.date,
@@ -27,6 +37,8 @@ class Transaction extends Equatable {
     this.upiRefNumber,
     this.rawSms,
     this.category,
+    this.merchantKey,
+    this.userNarration,
   });
 
   @override
@@ -43,5 +55,7 @@ class Transaction extends Equatable {
         upiRefNumber,
         rawSms,
         category,
+        merchantKey,
+        userNarration,
       ];
 }

@@ -22,7 +22,7 @@ class TransactionRepositoryImpl implements TransactionRepository {
 
   @override
   Future<void> saveTransaction(Transaction transaction) async {
-final model = TransactionModel(
+    final model = TransactionModel(
       id: transaction.id,
       date: transaction.date,
       amount: transaction.amount,
@@ -35,8 +35,39 @@ final model = TransactionModel(
       upiRefNumber: transaction.upiRefNumber,
       rawSms: transaction.rawSms,
       category: transaction.category,
+      merchantKey: transaction.merchantKey,
+      userNarration: transaction.userNarration,
     );
     await _localDatasource.insertTransaction(model);
+  }
+
+  @override
+  Future<List<Transaction>> getTransactionsBetween(
+    String startIsoDate,
+    String endIsoDate,
+  ) async {
+    final models = await _localDatasource.getTransactionsBetween(startIsoDate, endIsoDate);
+    return models;
+  }
+
+  @override
+  Future<List<Transaction>> getUnlinkedDebits({int limit = 400}) async {
+    final models = await _localDatasource.getUnlinkedDebits(limit: limit);
+    return models;
+  }
+
+  @override
+  Future<void> updateMerchantKey(
+    int id,
+    String merchantKey, {
+    String? userNarration,
+  }) async {
+    await _localDatasource.updateMerchantKey(id, merchantKey, userNarration: userNarration);
+  }
+
+  @override
+  Future<void> deleteTransactions(List<int> ids) async {
+    await _localDatasource.deleteTransactions(ids);
   }
 
   @override

@@ -35,7 +35,12 @@ class TransactionCard extends StatelessWidget {
     // A user label ("papa") for a money-in sender applies everywhere the
     // sender's account/VPA appears — home, activity, anywhere the card shows.
     final senderLabel = _senderLabel(context, transaction);
-    final displayName = senderLabel ?? brand.name;
+    // The user's own description ("dinner") is the truest name of a payment:
+    // it wins the title; the merchant/sender name moves under it on the
+    // details sheet. Kept verbatim — the AI never rewrites the essence.
+    final description = transaction.userNarration;
+    final displayName =
+        (description != null && description.isNotEmpty) ? description : (senderLabel ?? brand.name);
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),

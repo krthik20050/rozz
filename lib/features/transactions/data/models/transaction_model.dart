@@ -14,6 +14,8 @@ class TransactionModel extends Transaction {
     super.upiRefNumber,
     super.rawSms,
     super.category,
+    super.merchantKey,
+    super.userNarration,
   });
 
   factory TransactionModel.fromSms(Map<String, dynamic> parsed, String rawSms) {
@@ -31,6 +33,8 @@ class TransactionModel extends Transaction {
       upiRefNumber: parsed['upi_ref_number'] as String?,
       rawSms: rawSms,
       category: parsed['category'] as String?,
+      merchantKey: parsed['merchant_key'] as String?,
+      userNarration: parsed['user_narration'] as String?,
     );
   }
 
@@ -50,6 +54,8 @@ class TransactionModel extends Transaction {
       upiRefNumber: map['upi_ref_number'] as String?,
       rawSms: map['raw_sms'] as String?,
       category: map['category'] as String?,
+      merchantKey: map['merchant_key'] as String?,
+      userNarration: map['user_narration'] as String?,
     );
   }
 
@@ -67,6 +73,8 @@ class TransactionModel extends Transaction {
       'upi_ref_number': upiRefNumber,
       'raw_sms': rawSms,
       'category': category,
+      'merchant_key': merchantKey,
+      'user_narration': userNarration,
     };
   }
 }

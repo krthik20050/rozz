@@ -5,9 +5,12 @@ import 'package:rozz/core/theme/colors.dart';
 import 'package:rozz/features/insights/domain/entities/resolved_sender.dart';
 import 'package:rozz/features/insights/presentation/bloc/insights_bloc.dart';
 import 'package:rozz/features/insights/presentation/pages/manage_senders_page.dart';
+import 'package:rozz/features/merchants/presentation/pages/manage_merchants_page.dart';
 import 'package:rozz/features/transactions/domain/entities/transaction.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:intl/intl.dart';
+import 'package:rozz/shared/utils/merchant_brand_resolver.dart';
+import 'package:rozz/shared/utils/merchant_key.dart';
 import 'package:rozz/shared/utils/sender_label_resolver.dart';
 
 /// Full details for one transaction: parsed fields + the original bank SMS.
@@ -26,13 +29,64 @@ class TransactionDetailsSheet extends StatelessWidget {
   }
 
   /// Credit senders honor the user's label ("papa") here too, matching the
-  /// card and the income tab.
+  /// card and the income tab. Debits show the user's own description first,
+  /// then the merchant identity.
   String _displayName(InsightsState state, Transaction tx) {
+    final note = tx.userNarration;
+    if (note != null && note.trim().isNotEmpty) return note;
     if (tx.direction != 'credit') return tx.recipientName!;
     final labels = state is InsightsLoaded ? state.senderLabels : const <String, String>{};
     final key = (tx.recipientName ?? '').trim().toLowerCase();
     if (key.isEmpty) return tx.recipientName!;
     return resolveSenderLabel(key, labels) ?? tx.recipientName!;
+  }
+
+  /// For a debit without a user description the *merchant* display name (brand
+  /// name when canonical, else the raw payee) is the detail under the title.
+  String _merchantName() {
+    final brand = MerchantBrandResolver.resolve(
+      transaction.recipientName ?? '',
+      transaction.labelType,
+      transaction.direction,
+    );
+    return brand.name;
+  }
+
+  String? get _merchantKeyForDebit {
+    if (transaction.direction != 'debit') return null;
+    final raw = transaction.recipientName ?? '';
+    if (raw.trim().isEmpty) return null;
+    final brand = MerchantKey.brandCanonicalSlug(raw, transaction.labelType, 'debit');
+    return transaction.merchantKey ?? brand ?? MerchantKey.slug(raw);
+  }
+
+  String get _merchantCanonicalName {
+    final raw = transaction.recipientName ?? '';
+    final brandName = _merchantName();
+    return brandName.isEmpty ? raw : brandName;
+  }
+
+  bool get _canDescribe =>
+      transaction.direction == 'debit' &&
+      (transaction.recipientName?.trim().isNotEmpty ?? false);
+
+  /// Open the shared payee sheet in per-payment mode: this payment always
+  /// adopts the word; the payee's other undecorated payments do too.
+  void _describePayment(BuildContext context) {
+    final key = _merchantKeyForDebit;
+    if (key == null) return;
+    showPayeeDescriptionSheet(
+      context,
+      merchantKey: key,
+      canonicalName: _merchantCanonicalName,
+      currentDescription: transaction.userNarration,
+      paymentsCount: 1,
+      merchantWide: false,
+      triggerTxId: transaction.id,
+      recipientName: transaction.recipientName,
+      upiId: transaction.upiId,
+      labelType: transaction.labelType,
+    );
   }
 
   /// The raw normalized sender key — used for naming this sender.
@@ -199,9 +253,11 @@ class TransactionDetailsSheet extends StatelessWidget {
             ),
           ),
           if (transaction.recipientName != null)
-            // Rebuilds when a label is saved, so the name updates live.
+            // Rebuilds when a label/description is saved, so names update live.
             BlocBuilder<InsightsBloc, InsightsState>(
               builder: (context, state) {
+                final note = transaction.userNarration;
+                final hasNote = note != null && note.trim().isNotEmpty;
                 return Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -209,10 +265,25 @@ class TransactionDetailsSheet extends StatelessWidget {
                     Text(
                       _displayName(state, transaction),
                       style: GoogleFonts.dmSans(
-                        fontSize: 15,
-                        color: RozzColors.textSecondary,
+                        fontSize: 17,
+                        fontWeight: hasNote ? FontWeight.w600 : FontWeight.w400,
+                        color: hasNote ? RozzColors.textPrimary : RozzColors.textSecondary,
                       ),
                     ),
+                    // The raw merchant identity stays visible under the user's
+                    // word — the essence lives together with where it went.
+                    if (hasNote && transaction.direction == 'debit') ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        _merchantName(),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: GoogleFonts.dmSans(
+                          fontSize: 13,
+                          color: RozzColors.textMuted,
+                        ),
+                      ),
+                    ],
                     if (_senderKey != null) ...[
                       const SizedBox(height: 14),
                       SizedBox(
@@ -236,6 +307,39 @@ class TransactionDetailsSheet extends StatelessWidget {
                           style: OutlinedButton.styleFrom(
                             side: BorderSide(
                               color: _hasLabel(state)
+                                  ? RozzColors.gold.withValues(alpha: 0.6)
+                                  : RozzColors.expense.withValues(alpha: 0.7),
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                    if (_canDescribe) ...[
+                      const SizedBox(height: 14),
+                      SizedBox(
+                        width: double.infinity,
+                        height: 44,
+                        child: OutlinedButton.icon(
+                          onPressed: () => _describePayment(context),
+                          icon: Icon(
+                            Icons.edit_note_rounded,
+                            size: 16,
+                            color: hasNote ? RozzColors.gold : RozzColors.expense,
+                          ),
+                          label: Text(
+                            hasNote ? 'edit description' : 'describe this payment',
+                            style: GoogleFonts.dmSans(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: hasNote ? RozzColors.gold : RozzColors.expense,
+                            ),
+                          ),
+                          style: OutlinedButton.styleFrom(
+                            side: BorderSide(
+                              color: hasNote
                                   ? RozzColors.gold.withValues(alpha: 0.6)
                                   : RozzColors.expense.withValues(alpha: 0.7),
                             ),

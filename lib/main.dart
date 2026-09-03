@@ -18,6 +18,9 @@ import 'package:rozz/core/theme/colors.dart';
 import 'package:rozz/core/theme/typography.dart';
 import 'package:rozz/features/chat/presentation/pages/chat_rozz_page.dart';
 import 'package:rozz/features/home/presentation/pages/home_page.dart';
+import 'package:rozz/features/statement_upload/data/datasources/statement_sync_api.dart';
+import 'package:rozz/features/statement_upload/data/repositories/statement_sync_repository_impl.dart';
+import 'package:rozz/features/statement_upload/presentation/bloc/statement_sync_bloc.dart';
 import 'package:rozz/features/insights/data/datasources/dismissed_subscription_local_datasource.dart';
 import 'package:rozz/features/insights/data/datasources/sender_label_local_datasource.dart';
 import 'package:rozz/features/insights/data/repositories/dismissed_subscription_repository_impl.dart';
@@ -28,6 +31,9 @@ import 'package:rozz/features/insights/domain/usecases/compute_subscriptions.dar
 import 'package:rozz/features/insights/domain/usecases/compute_upcoming_charges.dart';
 import 'package:rozz/features/insights/domain/usecases/resolve_sender_identities.dart';
 import 'package:rozz/features/insights/presentation/bloc/insights_bloc.dart';
+import 'package:rozz/features/merchants/data/datasources/merchant_local_datasource.dart';
+import 'package:rozz/features/merchants/data/repositories/merchant_repository_impl.dart';
+import 'package:rozz/features/merchants/presentation/bloc/merchant_bloc.dart';
 import 'package:rozz/features/insights/presentation/pages/insights_page.dart';
 import 'package:rozz/features/mab/data/datasources/mab_local_datasource.dart';
 import 'package:rozz/features/mab/data/repositories/mab_repository_impl.dart';
@@ -118,14 +124,24 @@ Future<void> _bootstrapApp() async {
   final smsParser = SmsParser();
   final txnLocalDS = TransactionLocalDatasourceImpl(dbHelper);
   final txnRepo = TransactionRepositoryImpl(txnLocalDS);
+  final merchantDS = MerchantLocalDatasourceImpl(dbHelper);
+  final merchantRepo = MerchantRepositoryImpl(merchantDS);
 
   final mabLocalDS = MabLocalDatasourceImpl(dbHelper);
   final mabRepo = MabRepositoryImpl(mabLocalDS);
+
+  final statementSyncRepo = StatementSyncRepositoryImpl(
+    secureStorage: secureStorage,
+    api: StatementSyncApi(),
+    transactions: txnLocalDS,
+    databaseHelper: dbHelper,
+  );
 
   final syncService = TransactionSyncService(
     txnRepo,
     dbHelper,
     smsParser,
+    merchantDS,
   );
 
   // Background EOD Task Scheduling (Android WorkManager). Never block startup
@@ -176,6 +192,12 @@ Future<void> _bootstrapApp() async {
             txnRepo,
             ComputeMonthlySummary(),
           ),
+        ),
+        BlocProvider<MerchantBloc>(
+          create: (context) => MerchantBloc(merchantRepo)..add(LoadMerchants()),
+        ),
+        BlocProvider<StatementSyncBloc>(
+          create: (context) => StatementSyncBloc(statementSyncRepo),
         ),
       ],
       child: RozzApp(
@@ -634,7 +656,15 @@ class _MainScaffoldState extends State<MainScaffold> {
 
     // Back goes home first (never a surprise exit): on any tab other than
     // home, the system back button lands on home; only home lets it exit.
-    return PopScope(
+    return BlocListener<MerchantBloc, MerchantState>(
+      // A description write propagated narration onto transaction rows — the
+      // activity/home lists must re-read the ledger to show the new words.
+      listener: (context, state) {
+        if (state is MerchantLoaded && state.lastApply != null) {
+          context.read<TransactionBloc>().add(LoadTransactions());
+        }
+      },
+      child: PopScope(
       canPop: _currentIndex == 0,
       onPopInvokedWithResult: (didPop, result) {
         if (!didPop) setState(() => _currentIndex = 0);
@@ -667,6 +697,7 @@ class _MainScaffoldState extends State<MainScaffold> {
             onTapTab: (index) => setState(() => _currentIndex = index),
           ),
         ),
+      ),
       ),
     );
   }

@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:rozz/core/security/secure_storage_service.dart';
 import 'package:rozz/core/services/ai_service.dart';
 import 'package:rozz/core/theme/colors.dart';
+import 'package:rozz/features/statement_upload/presentation/pages/statement_sync_page.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 class SettingsPage extends StatefulWidget {
@@ -181,6 +182,27 @@ class _SettingsPageState extends State<SettingsPage> {
               label: 'Grant Full Inbox Access',
               color: RozzColors.accent,
               onPressed: _grantFullInboxAccess,
+            ),
+            const SizedBox(height: 32),
+            _buildSectionHeader('STATEMENT SYNC (WHATSAPP)'),
+            const SizedBox(height: 16),
+            _buildInfoCard(
+              'Bank statement auto-import',
+              'Send your HDFC statement PDF to your ROZZ WhatsApp number — the '
+              'server parses and categorizes it, and ROZZ pulls the rows into '
+              'your ledger. Configure your server URL and key here.',
+            ),
+            const SizedBox(height: 16),
+            _buildActionButton(
+              label: 'Open Statement Sync',
+              color: RozzColors.gold,
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => const StatementSyncPage(),
+                  ),
+                );
+              },
             ),
             const SizedBox(height: 32),
             _buildSectionHeader('ABOUT'),
