@@ -16,14 +16,21 @@ class DatabaseHelper {
   final WriteQueue _writeQueue = WriteQueue();
   String? _encryptionKey;
 
+  /// Single-flight memoization: several blocs fire at startup and every one
+  /// touches `database` lazily. Without this they raced — each ran the full
+  /// init (quarantine / key / open) and could double-quarantine the ledger or
+  /// leak a connection. Exactly one init runs, ever.
+  Future<sqlcipher.Database>? _databaseFuture;
+
   factory DatabaseHelper() => _instance;
   DatabaseHelper._internal();
 
-  Future<sqlcipher.Database> get database async {
-    if (_database != null) return _database!;
-    _database = await _initDatabase();
-    return _database!;
-  }
+  Future<sqlcipher.Database> get database => _databaseFuture ??= _initDatabase().then(
+        (db) {
+          _database = db;
+          return db;
+        },
+      );
 
   Future<sqlcipher.Database> _initDatabase() async {
     // Test / web: use unencrypted in-memory DB (no native SQLCipher support)
@@ -684,6 +691,7 @@ class DatabaseHelper {
   }
 
   Future<void> close() async {
+    _databaseFuture = null;
     if (_database != null && _database!.isOpen) {
       await _database!.close();
       _database = null;
