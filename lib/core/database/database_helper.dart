@@ -48,11 +48,19 @@ class DatabaseHelper {
       // on — which silently bricked every read on those installs.
       if (await _isPlaintext(path)) {
         await _encryptExistingDatabase(path, _encryptionKey!);
-      } else {
-        // Early plaintext→encrypted migrations ran sqlcipher_export before the
-        // user_version header was preserved, leaving an encrypted DB stamped 0.
-        // Stamp it so sqflite upgrades instead of re-creating the tables.
-        await _repairZeroVersion(path, _encryptionKey!);
+      } else if (await File(path).exists()) {
+        // Existing encrypted DB: it must decrypt with the current key AND
+        // carry the ledger schema. If either fails, the DB is unrecoverable
+        // as-is — a Keystore key lost after restore/update/hard-kill (SQLCipher
+        // code 26 "file is not a database"), or the schema-less version-2
+        // artifact the old _repairZeroVersion stamped on fresh installs
+        // ("no such table" on every open). Quarantine it and start a fresh
+        // ledger instead of bricking the app on a generic load error.
+        if (await _isHealthyLedger(path, _encryptionKey!)) {
+          await _repairZeroVersion(path, _encryptionKey!);
+        } else {
+          await _quarantineBrokenDatabase(path);
+        }
       }
       return await _openEncrypted(path);
     } on sqlcipher.DatabaseException catch (e) {
@@ -64,6 +72,77 @@ class DatabaseHelper {
       return _openEncrypted(path);
     }
   }
+
+  /// True when [path] decrypts with [key] AND carries the ledger schema.
+  /// False on a key mismatch (SQLCipher code 26) or on the schema-less
+  /// version-2 artifact from the old _repairZeroVersion bug — both are
+  /// unrecoverable with the current key and must be quarantined.
+  Future<bool> _isHealthyLedger(String path, String key) async {
+    try {
+      final db = await _openWithKey(path, password: key);
+      try {
+        final rows = await db.rawQuery(
+          "SELECT name FROM sqlite_schema WHERE type='table' AND name='transactions'",
+        );
+        return rows.isNotEmpty;
+      } finally {
+        await db.close();
+      }
+    } on sqlcipher.DatabaseException {
+      // Can't decrypt or read the file with the current key — not ours.
+      return false;
+    }
+  }
+
+  /// Moves an unreadable ledger aside (kept for forensics / manual recovery —
+  /// the data was unrecoverable with the current key anyway) and clears WAL
+  /// sidecars so the next open starts a clean, freshly-created ledger.
+  Future<void> _quarantineBrokenDatabase(String path) async {
+    final ts = DateTime.now()
+        .toUtc()
+        .toIso8601String()
+        .replaceAll(RegExp(r'[:.]'), '-');
+    final backup = '$path.broken-$ts';
+    for (final suffix in const ['', '-wal', '-shm', '-journal']) {
+      final file = File('$path$suffix');
+      if (!await file.exists()) continue;
+      await file.rename('$backup$suffix');
+    }
+    debugPrint('ROZZ: quarantined unreadable ledger to $backup; starting fresh');
+  }
+
+  /// Test seam — the SQLCipher plugin is a method channel that does not exist
+  /// under `flutter test`; ffi stands in there (passwords are ignored, so the
+  /// wrong-key branch can't be simulated — the schema checks still hold).
+  @visibleForTesting
+  static Future<sqlcipher.Database> Function(String path, {String? password})
+      dbOpenerForTest = defaultDbOpener;
+
+  @visibleForTesting
+  static Future<sqlcipher.Database> defaultDbOpener(
+    String path, {
+    String? password,
+  }) =>
+      sqlcipher.openDatabase(path, password: password);
+
+  Future<sqlcipher.Database> _openWithKey(String path, {String? password}) =>
+      dbOpenerForTest(path, password: password);
+
+  @visibleForTesting
+  Future<void> applyUpgradeForTest(sqlcipher.Database db, int oldVersion) =>
+      _onUpgrade(db, oldVersion, _version);
+
+  @visibleForTesting
+  Future<void> repairZeroVersionForTest(String path, String key) =>
+      _repairZeroVersion(path, key);
+
+  @visibleForTesting
+  Future<bool> isHealthyLedgerForTest(String path, String key) =>
+      _isHealthyLedger(path, key);
+
+  @visibleForTesting
+  Future<void> quarantineBrokenDatabaseForTest(String path) =>
+      _quarantineBrokenDatabase(path);
 
   Future<sqlcipher.Database> _openEncrypted(String path) {
     return sqlcipher.openDatabase(
@@ -131,14 +210,17 @@ class DatabaseHelper {
     return (e.getResultCode() ?? 0) == 26 ||
         msg.contains('not a database') ||
         msg.contains('file is encrypted');
-  }
-
-  /// An encrypted DB stamped user_version=0 (from an early buggy export)
+  }  /// An encrypted DB stamped user_version=0 (from an early buggy export)
   /// makes sqflite fire onCreate against existing tables. Detect and re-stamp
   /// it to 2 — oldVersion=0 would run onCreate; 2 skips the v1 table rebuild
   /// yet still walks every later onUpgrade migration (all IF NOT EXISTS / data
-  ///-preserving) over the exported schema.
+  /// -preserving) over the exported schema.
   Future<void> _repairZeroVersion(String path, String key) async {
+    // Fresh install: nothing to repair. SQLite CREATES the file on open —
+    // doing that here stamped an empty schema-less DB as version 2, and the
+    // very first real open then crashed in onUpgrade ("no such table:
+    // transactions"), bricking every fresh install.
+    if (!await File(path).exists()) return;
     final db = await sqlcipher.openDatabase(path, password: key);
     try {
       if (await db.getVersion() != 0) return;
@@ -220,6 +302,28 @@ class DatabaseHelper {
   /// The guard also covers the cold-start case where Kotlin created the DB file
   /// first (no onCreate → onUpgrade(0, newVersion)).
   Future<void> _onUpgrade(sqlcipher.Database db, int oldVersion, int newVersion) async {
+    // Self-heal (defense in depth behind the _isHealthyLedger quarantine):
+    // installs that carry the schema-less version-2 artifact from the old
+    // _repairZeroVersion bug have NO tables at all. Recreate the full current
+    // schema so every migration below can run instead of crashing on
+    // 'no such table: transactions' and bricking the app.
+    if (!await _tableExists(db, 'transactions')) {
+      await db.execute(_transactionsDdl);
+      await db.execute(_mabDdl);
+      await db.execute(_rawInboxDdl);
+      await db.execute(_senderLabelsDdl);
+      await db.execute(_appMetaDdl);
+      await db.execute(_dismissedSubscriptionsDdl);
+      await db.execute(_merchantsDdl);
+      await db.execute(_merchantAliasesDdl);
+      await db.execute(_statementUploadsDdl);
+      await db.execute(_uploadedRowsDdl);
+      await db.execute(_txDedupeIndexDdl);
+      await db.execute(_txDateIndexDdl);
+      await db.execute(_txMerchantIndexDdl);
+      await _seedDismissedSubscriptions(db);
+    }
+
     if (oldVersion < 2) {
       await db.execute('CREATE TABLE IF NOT EXISTS transactions_new $_transactionsBody');
       await db.execute('''
@@ -549,6 +653,14 @@ class DatabaseHelper {
     final info = await db.rawQuery('PRAGMA table_info($table)');
     final has = info.any((row) => row['name'] == column);
     if (!has) await db.execute(alterDdl);
+  }
+
+  static Future<bool> _tableExists(sqlcipher.Database db, String table) async {
+    final rows = await db.rawQuery(
+      "SELECT name FROM sqlite_schema WHERE type='table' AND name = ?",
+      [table],
+    );
+    return rows.isNotEmpty;
   }
 
   /// For read operations
