@@ -2,6 +2,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:equatable/equatable.dart';
 import 'package:rozz/features/transactions/domain/entities/transaction.dart';
 import 'package:rozz/features/transactions/domain/repositories/transaction_repository.dart';
+import 'package:rozz/features/transactions/domain/usecases/compute_current_balance.dart';
 import 'package:rozz/core/services/ai_service.dart';
 
 part 'transaction_event.dart';
@@ -24,23 +25,16 @@ class TransactionBloc extends Bloc<TransactionEvent, TransactionState> {
     emit(TransactionLoading());
     try {
       final transactions = await _repository.getAllTransactions();
-      
-      // Calculate running balance from transactions if lastKnown is null/zero
-      double? balance = await _repository.getLastKnownBalance();
 
-      if (balance == null || balance == 0) {
-        double calculatedBalance = 0;
-        for (var tx in transactions) {
-          if (tx.direction == 'credit') {
-            calculatedBalance += tx.amount;
-          } else {
-            calculatedBalance -= tx.amount;
-          }
-        }
-        balance = calculatedBalance;
-      }
+      // The balance engine: anchor on the newest bank-reported balance, then
+      // replay every ledger transaction after it. With no bank-reported
+      // balance anywhere the balance stays unknown — the UI shows "—" rather
+      // than the old sum-from-implicit-zero fiction.
+      final computed = await _repository.computeBalance();
+      final balance = computed.value;
+      final isBankVerified = computed.confidence == BalanceConfidence.bankVerified;
 
-      emit(TransactionLoaded(transactions, balance));
+      emit(TransactionLoaded(transactions, balance, bankVerified: isBankVerified));
 
       // Note: AI auto-categorization is intentionally NOT fired here. On
       // the free tier a sync of hundreds of transactions burns the whole

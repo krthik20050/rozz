@@ -1,5 +1,6 @@
 import 'package:rozz/core/database/database_helper.dart';
 import 'package:rozz/features/transactions/data/models/transaction_model.dart';
+import 'package:rozz/features/transactions/domain/usecases/compute_current_balance.dart';
 import 'package:sqflite/sqflite.dart';
 
 abstract class TransactionLocalDatasource {
@@ -7,6 +8,9 @@ abstract class TransactionLocalDatasource {
   Future<List<TransactionModel>> getAllTransactions();
   Future<List<TransactionModel>> getTransactionsByMonth(int month, int year);
   Future<double?> getLastKnownBalance();
+
+  /// Running-balance engine: anchor + replay. See [ComputeCurrentBalance].
+  Future<ComputedBalance> computeBalance();
   Future<List<TransactionModel>> getUncategorizedTransactions({int limit = 20});
   Future<void> updateCategory(int id, String category);
 
@@ -93,54 +97,77 @@ class TransactionLocalDatasourceImpl implements TransactionLocalDatasource {
 
   @override
   Future<double?> getLastKnownBalance() async {
-    // The real current balance is the newest EOD snapshot (recorded from HDFC's
-    // daily balance-advice SMS into mab_history). A transaction's balance_after
-    // wins when it's at least as new as that snapshot — a same-day row in
-    // mab_history is the EOD background task's mid-day estimate, never a true
-    // end-of-day value, so a same-day transaction is fresher evidence.
-    final eod = await _databaseHelper.query((db) async {
-      final maps = await db.query(
-        'mab_history',
-        columns: ['date', 'end_of_day_balance'],
-        orderBy: 'date DESC',
-        limit: 1,
-      );
-      if (maps.isEmpty) return null;
-      return maps.first;
-    });
-    if (eod != null) {
-      final tx = await _databaseHelper.query((db) async {
-        final maps = await db.query(
+    return (await computeBalance()).value;
+  }
+
+  /// The real current balance, computed by the running-balance engine:
+  /// anchor on the newest bank-reported balance (a transaction SMS with
+  /// "Avl bal ₹X" → transactions.balance_after, or HDFC's daily balance
+  /// advice → mab_history.end_of_day_balance), then replay every ledger
+  /// transaction AFTER that anchor — each one is a real bank-reported
+  /// credit/debit, so the number stays live as new SMS land.
+  ///
+  /// With no bank-reported balance anywhere, returns
+  /// [BalanceConfidence.unknown] — callers must not invent a number.
+  @override
+  Future<ComputedBalance> computeBalance() async {
+    // Both anchor sources and the ledger are read in one go; the engine
+    // picks the newest anchor and replays forward from it.
+    final results = await Future.wait([
+      _databaseHelper.query((db) async {
+        return await db.query(
+          'transactions',
+          columns: ['date', 'amount', 'direction'],
+          orderBy: 'date ASC',
+        );
+      }),
+      _databaseHelper.query((db) async {
+        return await db.query(
           'transactions',
           columns: ['date', 'balance_after'],
           where: 'balance_after IS NOT NULL',
           orderBy: 'date DESC',
           limit: 1,
         );
-        if (maps.isEmpty) return null;
-        return maps.first;
-      });
-      if (tx != null &&
-          (tx['date'] as String).substring(0, 10).compareTo(eod['date'] as String) >= 0) {
-        return (tx['balance_after'] as num).toDouble();
-      }
-      return (eod['end_of_day_balance'] as num).toDouble();
-    }
+      }),
+      _databaseHelper.query((db) async {
+        return await db.query(
+          'mab_history',
+          columns: ['date', 'end_of_day_balance'],
+          orderBy: 'date DESC',
+          limit: 1,
+        );
+      }),
+    ]);
+    final txRows = results[0];
+    final anchorRows = [
+      ...results[1],
+      ...results[2],
+    ];
 
-    // Fallback: most recent transaction balance
-    final List<Map<String, dynamic>> maps = await _databaseHelper.query((db) async {
-      return await db.query(
-        'transactions',
-        columns: ['balance_after'],
-        where: 'balance_after IS NOT NULL',
-        orderBy: 'date DESC',
-        limit: 1,
-      );
-    });
-    if (maps.isNotEmpty) {
-      return (maps.first['balance_after'] as num).toDouble();
-    }
-    return null;
+    final anchors = anchorRows
+        .map((row) => BalanceAnchor(
+              date: row['date'] as String,
+              balance:
+                  ((row['balance_after'] ?? row['end_of_day_balance']) as num)
+                      .toDouble(),
+            ))
+        .toList();
+
+    final transactions = txRows
+        .map((row) => TransactionModel(
+              date: row['date'] as String,
+              amount: (row['amount'] as num).toDouble(),
+              direction: row['direction'] as String,
+              labelType: 'unknown',
+              source: 'sms',
+            ))
+        .toList();
+
+    return const ComputeCurrentBalance().compute(
+      transactions: transactions,
+      anchors: anchors,
+    );
   }
 
   @override

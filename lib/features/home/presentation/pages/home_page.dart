@@ -43,9 +43,18 @@ class HomePage extends StatelessWidget {
               return _buildLoading(context);
             } else if (state is TransactionLoaded) {
               if (state.transactions.isEmpty) {
-                return _buildEmpty(context, state.currentBalance ?? 0.0);
+                return _buildEmpty(
+                  context,
+                  state.currentBalance ?? 0.0,
+                  bankVerified: state.bankVerified,
+                );
               }
-              return _buildLoaded(context, state.transactions, state.currentBalance ?? 0.0);
+              return _buildLoaded(
+                context,
+                state.transactions,
+                state.currentBalance ?? 0.0,
+                bankVerified: state.bankVerified,
+              );
             } else if (state is TransactionError) {
               return StateMessage.error(
                 title: 'couldn\'t load your account',
@@ -64,10 +73,18 @@ class HomePage extends StatelessWidget {
     return const HomeLoadingSkeleton();
   }
 
-  Widget _buildEmpty(BuildContext context, double balance) {
+  Widget _buildEmpty(
+    BuildContext context,
+    double balance, {
+    bool bankVerified = false,
+  }) {
     return Column(
       children: [
-        BalanceHero(balance: balance, accountSuffix: accountSuffix),
+        BalanceHero(
+          balance: balance,
+          accountSuffix: accountSuffix,
+          bankVerified: bankVerified,
+        ),
         const Expanded(
           child: StateMessage.empty(
             title: 'no transactions yet',
@@ -139,7 +156,12 @@ class HomePage extends StatelessWidget {
     );
   }
 
-  Widget _buildLoaded(BuildContext context, List<Transaction> transactions, double balance) {
+  Widget _buildLoaded(
+    BuildContext context,
+    List<Transaction> transactions,
+    double balance, {
+    bool bankVerified = false,
+  }) {
     final recentTxns = transactions.take(5).toList();
 
     return CustomScrollView(
@@ -148,6 +170,7 @@ class HomePage extends StatelessWidget {
           child: BalanceHero(
             balance: balance,
             accountSuffix: accountSuffix,
+            bankVerified: bankVerified,
           ),
         ),
         SliverToBoxAdapter(

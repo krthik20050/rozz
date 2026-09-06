@@ -12,10 +12,16 @@ class BalanceHero extends StatefulWidget {
   /// ("HDFC Bank •••• 4321"). Null until the migration has seen an SMS.
   final String? accountSuffix;
 
+  /// False when no bank-reported balance exists anywhere in the ledger —
+  /// the app then honestly shows "—" (plus a hint) instead of a number
+  /// that would be invented from an unknown opening balance.
+  final bool bankVerified;
+
   const BalanceHero({
     super.key,
     required this.balance,
     this.accountSuffix,
+    this.bankVerified = false,
   });
 
   @override
@@ -103,7 +109,16 @@ class _BalanceHeroState extends State<BalanceHero> {
                     const SizedBox(height: 20),
                     Row(
                       children: [
-                        if (_isBalanceVisible)
+                        if (!widget.bankVerified)
+                          Text(
+                            '—',
+                            style: GoogleFonts.dmMono(
+                              fontSize: 44,
+                              fontWeight: FontWeight.bold,
+                              color: RozzColors.textPrimary,
+                            ),
+                          )
+                        else if (_isBalanceVisible)
                           AnimatedCounterText(
                             value: widget.balance,
                             fontSize: 44,
@@ -118,20 +133,25 @@ class _BalanceHeroState extends State<BalanceHero> {
                             ),
                           ),
                         const SizedBox(width: 12),
-                        IconButton(
-                          onPressed: () => setState(() => _isBalanceVisible = !_isBalanceVisible),
-                          icon: Icon(
-                            _isBalanceVisible ? Icons.visibility_outlined : Icons.visibility_off_outlined,
-                            color: RozzColors.textSecondary,
-                            size: 20,
+                        // The eye toggle only means something when a real
+                        // number is being shown.
+                        if (widget.bankVerified)
+                          IconButton(
+                            onPressed: () => setState(() => _isBalanceVisible = !_isBalanceVisible),
+                            icon: Icon(
+                              _isBalanceVisible ? Icons.visibility_outlined : Icons.visibility_off_outlined,
+                              color: RozzColors.textSecondary,
+                              size: 20,
+                            ),
                           ),
-                        ),
                       ],
                     ),
                     Text(
-                      widget.accountSuffix == null
-                          ? 'available balance  •  HDFC Bank'
-                          : 'available balance  •  HDFC Bank •••• ${widget.accountSuffix}',
+                      widget.bankVerified
+                          ? (widget.accountSuffix == null
+                              ? 'available balance  •  HDFC Bank'
+                              : 'available balance  •  HDFC Bank •••• ${widget.accountSuffix}')
+                          : 'waiting for your first bank SMS to verify balance',
                       style: GoogleFonts.dmSans(
                         fontSize: 12,
                         color: RozzColors.textSecondary,

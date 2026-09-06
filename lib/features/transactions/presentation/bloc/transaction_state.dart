@@ -15,10 +15,20 @@ class TransactionLoaded extends TransactionState {
   final List<Transaction> transactions;
   final double? currentBalance;
 
-  const TransactionLoaded(this.transactions, this.currentBalance);
+  /// True when [currentBalance] is anchored on a bank-reported balance
+  /// (newest bank balance + replayed ledger deltas). False when no bank
+  /// balance has ever been seen — the UI must then NOT present the number
+  /// as the bank balance (it is null in that case anyway).
+  final bool bankVerified;
+
+  const TransactionLoaded(
+    this.transactions,
+    this.currentBalance, {
+    this.bankVerified = false,
+  });
 
   @override
-  List<Object?> get props => [transactions, currentBalance];
+  List<Object?> get props => [transactions, currentBalance, bankVerified];
 }
 
 class TransactionError extends TransactionState {

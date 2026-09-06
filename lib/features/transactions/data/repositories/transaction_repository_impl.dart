@@ -2,6 +2,7 @@ import 'package:rozz/features/transactions/data/datasources/transaction_local_da
 import 'package:rozz/features/transactions/data/models/transaction_model.dart';
 import 'package:rozz/features/transactions/domain/entities/transaction.dart';
 import 'package:rozz/features/transactions/domain/repositories/transaction_repository.dart';
+import 'package:rozz/features/transactions/domain/usecases/compute_current_balance.dart';
 
 class TransactionRepositoryImpl implements TransactionRepository {
   final TransactionLocalDatasource _localDatasource;
@@ -73,5 +74,10 @@ class TransactionRepositoryImpl implements TransactionRepository {
   @override
   Future<double?> getLastKnownBalance() async {
     return await _localDatasource.getLastKnownBalance();
+  }
+
+  @override
+  Future<ComputedBalance> computeBalance() async {
+    return await _localDatasource.computeBalance();
   }
 }
