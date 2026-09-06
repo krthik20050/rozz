@@ -21,14 +21,25 @@ class TransactionLoaded extends TransactionState {
   /// as the bank balance (it is null in that case anyway).
   final bool bankVerified;
 
+  /// Day (yyyy-MM-dd) of the bank anchor behind [currentBalance] — the UI
+  /// shows an "as of 3 Aug" freshness line when it is older than today, so
+  /// a replayed-over anchor can never silently look current.
+  final String? anchoredOn;
+
+  /// How many ledger transactions were replayed on top of the anchor.
+  final int replayedTransactions;
+
   const TransactionLoaded(
     this.transactions,
     this.currentBalance, {
     this.bankVerified = false,
+    this.anchoredOn,
+    this.replayedTransactions = 0,
   });
 
   @override
-  List<Object?> get props => [transactions, currentBalance, bankVerified];
+  List<Object?> get props =>
+      [transactions, currentBalance, bankVerified, anchoredOn, replayedTransactions];
 }
 
 class TransactionError extends TransactionState {

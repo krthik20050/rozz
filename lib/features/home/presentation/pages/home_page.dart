@@ -47,6 +47,7 @@ class HomePage extends StatelessWidget {
                   context,
                   state.currentBalance ?? 0.0,
                   bankVerified: state.bankVerified,
+                  anchoredOn: state.anchoredOn,
                 );
               }
               return _buildLoaded(
@@ -54,6 +55,7 @@ class HomePage extends StatelessWidget {
                 state.transactions,
                 state.currentBalance ?? 0.0,
                 bankVerified: state.bankVerified,
+                anchoredOn: state.anchoredOn,
               );
             } else if (state is TransactionError) {
               return StateMessage.error(
@@ -77,6 +79,7 @@ class HomePage extends StatelessWidget {
     BuildContext context,
     double balance, {
     bool bankVerified = false,
+    String? anchoredOn,
   }) {
     return Column(
       children: [
@@ -84,6 +87,7 @@ class HomePage extends StatelessWidget {
           balance: balance,
           accountSuffix: accountSuffix,
           bankVerified: bankVerified,
+          anchoredOn: anchoredOn,
         ),
         const Expanded(
           child: StateMessage.empty(
@@ -161,6 +165,7 @@ class HomePage extends StatelessWidget {
     List<Transaction> transactions,
     double balance, {
     bool bankVerified = false,
+    String? anchoredOn,
   }) {
     final recentTxns = transactions.take(5).toList();
 
@@ -171,6 +176,7 @@ class HomePage extends StatelessWidget {
             balance: balance,
             accountSuffix: accountSuffix,
             bankVerified: bankVerified,
+            anchoredOn: anchoredOn,
           ),
         ),
         SliverToBoxAdapter(

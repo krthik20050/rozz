@@ -1,6 +1,7 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:intl/intl.dart';
 import 'package:rozz/core/theme/colors.dart';
 import 'package:rozz/shared/widgets/animated_counter.dart';
 
@@ -17,11 +18,17 @@ class BalanceHero extends StatefulWidget {
   /// that would be invented from an unknown opening balance.
   final bool bankVerified;
 
+  /// Day (yyyy-MM-dd) of the bank anchor behind [balance]. When it is before
+  /// today the hero shows "as of 3 Aug" style freshness — the number was
+  /// replayed forward from that bank-reported moment, so its age is visible.
+  final String? anchoredOn;
+
   const BalanceHero({
     super.key,
     required this.balance,
     this.accountSuffix,
     this.bankVerified = false,
+    this.anchoredOn,
   });
 
   @override
@@ -30,6 +37,20 @@ class BalanceHero extends StatefulWidget {
 
 class _BalanceHeroState extends State<BalanceHero> {
   bool _isBalanceVisible = true;
+
+  /// Whether the anchor day (yyyy-MM-dd) is today.
+  static bool _isToday(String isoDay) {
+    final now = DateTime.now();
+    final today =
+        '${now.year.toString().padLeft(4, '0')}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+    return isoDay.length >= 10 && isoDay.substring(0, 10) == today;
+  }
+
+  static DateTime _anchorDate(String isoDay) {
+    final parsed = DateTime.tryParse(isoDay);
+    if (parsed != null) return parsed;
+    return DateTime.now();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -157,6 +178,24 @@ class _BalanceHeroState extends State<BalanceHero> {
                         color: RozzColors.textSecondary,
                       ),
                     ),
+                    // Anchor freshness: the number is replayed forward from
+                    // the bank's last reported balance. If that anchor is
+                    // older than today, say so — a stale number must never
+                    // silently look current.
+                    if (widget.bankVerified &&
+                        widget.anchoredOn != null &&
+                        !_isToday(widget.anchoredOn!))
+                      Padding(
+                        padding: const EdgeInsets.only(top: 4),
+                        child: Text(
+                          'as of ${DateFormat('d MMM').format(_anchorDate(widget.anchoredOn!))} — updates with your next bank SMS',
+                          style: GoogleFonts.dmSans(
+                            fontSize: 11,
+                            fontStyle: FontStyle.italic,
+                            color: RozzColors.textSecondary,
+                          ),
+                        ),
+                      ),
                   ],
                 ),
               ),

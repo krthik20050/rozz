@@ -34,7 +34,13 @@ class TransactionBloc extends Bloc<TransactionEvent, TransactionState> {
       final balance = computed.value;
       final isBankVerified = computed.confidence == BalanceConfidence.bankVerified;
 
-      emit(TransactionLoaded(transactions, balance, bankVerified: isBankVerified));
+      emit(TransactionLoaded(
+        transactions,
+        balance,
+        bankVerified: isBankVerified,
+        anchoredOn: computed.anchoredOn,
+        replayedTransactions: computed.replayedTransactions,
+      ));
 
       // Note: AI auto-categorization is intentionally NOT fired here. On
       // the free tier a sync of hundreds of transactions burns the whole

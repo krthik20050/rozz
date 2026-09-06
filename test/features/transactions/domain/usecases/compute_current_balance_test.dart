@@ -13,6 +13,83 @@ Transaction _tx(String date, double amount, String direction) => Transaction(
 void main() {
   const engine = ComputeCurrentBalance();
 
+  group('ComputeCurrentBalance — instant precision (the ₹1,440-vs-₹500 bug)', () {
+    test('same-day spends AFTER an "Avl bal" SMS anchor DO apply', () {
+      // THE user-reported bug: anchor SMS at 10:00 said ₹1,000; two same-day
+      // spends at 14:00 and 16:00 were ignored under day-granularity, so the
+      // app showed ₹1,000 while the real balance was ₹710.
+      final result = engine.compute(
+        transactions: [
+          _tx('2026-09-06T10:00:00.000', 1000, 'credit'), // balance-setting SMS (has balance_after in real data)
+          _tx('2026-09-06T14:00:00.000', 150, 'debit'),
+          _tx('2026-09-06T16:00:00.000', 140, 'debit'),
+        ],
+        anchors: const [BalanceAnchor(date: '2026-09-06T10:00:00.000', balance: 1000)],
+      );
+
+      expect(result.value, closeTo(710, 0.001));
+      expect(result.replayedTransactions, 2);
+    });
+
+    test('same-day transactions BEFORE the anchor instant are skipped', () {
+      // The anchor SMS at 18:00 already includes the morning's spends — the
+      // bank computed ₹900 knowing about them. Replaying them would subtract
+      // twice.
+      final result = engine.compute(
+        transactions: [
+          _tx('2026-09-06T09:00:00.000', 100, 'debit'),
+          _tx('2026-09-06T18:00:00.000', 50, 'debit'), // the anchor SMS itself
+        ],
+        anchors: const [BalanceAnchor(date: '2026-09-06T18:00:00.000', balance: 900)],
+      );
+
+      expect(result.value, closeTo(900, 0.001));
+      expect(result.replayedTransactions, 0);
+    });
+
+    test('a day-precision snapshot counts as END of that day', () {
+      // mab_history rows are closing balances: a same-day spend at any hour
+      // happened before the bank computed the day's closing number.
+      final result = engine.compute(
+        transactions: [
+          _tx('2026-08-14T18:30:00.000', 200, 'debit'),
+        ],
+        anchors: const [BalanceAnchor(date: '2026-08-14', balance: 1000)],
+      );
+
+      expect(result.value, closeTo(1000, 0.001));
+      expect(result.replayedTransactions, 0);
+    });
+
+    test('next-day transactions replay on top of a day snapshot', () {
+      final result = engine.compute(
+        transactions: [
+          _tx('2026-08-15T08:00:00.000', 400, 'debit'),
+          _tx('2026-08-15T20:00:00.000', 100, 'credit'),
+        ],
+        anchors: const [BalanceAnchor(date: '2026-08-14', balance: 1000)],
+      );
+
+      expect(result.value, closeTo(700, 0.001));
+      expect(result.replayedTransactions, 2);
+    });
+
+    test('newer timestamp anchor wins over newer-numbered older anchor', () {
+      final result = engine.compute(
+        transactions: [
+          _tx('2026-09-06T21:00:00.000', 60, 'debit'),
+        ],
+        anchors: const [
+          BalanceAnchor(date: '2026-09-05', balance: 5000),
+          BalanceAnchor(date: '2026-09-06T20:00:00.000', balance: 480),
+        ],
+      );
+
+      expect(result.value, closeTo(420, 0.001));
+      expect(result.anchoredOn, '2026-09-06');
+    });
+  });
+
   group('ComputeCurrentBalance — the made-up-balance regression', () {
     test('NO anchor -> unknown, never a sum-from-zero fiction', () {
       // The exact bug: ledger starts where capture started (unknown opening
