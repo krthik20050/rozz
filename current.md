@@ -1,7 +1,35 @@
 # ROZZ — Project Progress
 
-> Keep this file current. Updated last: 2026-09-04 (ledger-open hardening).
+> Keep this file current. Updated last: 2026-09-06 (running-balance engine).
 > Daily work log lives in `docs/daily-log/`.
+
+## 2026-09-06 — Running-balance engine ("made-up bank balance" fixed)
+
+- **Root cause:** when no bank-reported balance existed, the bloc fell back to
+  summing every transaction from an implicit ₹0 — a plausible-looking but
+  fictional number (net flow since capture began, not the bank balance).
+- **New engine** `features/transactions/domain/usecases/compute_current_balance.dart`:
+  anchor on the newest bank-reported balance (transaction SMS with
+  "Avl bal" → `balance_after`, or HDFC daily balance advice → `mab_history`),
+  then replay every ledger transaction AFTER the anchor. `ComputedBalance`
+  carries `value / anchoredOn / replayedTransactions / confidence`
+  (`bankVerified` | `unknown`). No anchor → `unknown` → the UI shows "—" and
+  "waiting for your first bank SMS to verify balance" — no invented number.
+- **Wiring:** datasource `computeBalance()` (typed reads — `DatabaseHelper.query`
+  returns `Future<dynamic>`; `List<dynamic>` is not assignable to the engine's
+  `List<Transaction>`), repository, bloc (`computeBalance()` replaces
+  `getLastKnownBalance()` in load path), `TransactionLoaded.bankVerified`,
+  home page + `BalanceHero` (eye toggle + number only when bank-verified).
+  `getLastKnownBalance()` kept as a thin delegate for existing callers.
+- **Guard:** the only `mab_history` writer is `_persistParsed` on
+  `label_type == 'balance_snapshot'` — computed balances can never become
+  anchors. Verified on device that the installed APK contains the engine
+  (`ComputeCurrentBalance`/`bankVerified` strings in `libapp.so`).
+- **Tests:** 7 engine tests, 5 datasource tests (incl. the sum-from-zero
+  regression + snapshot-anchors-replay-forward), bloc tests updated to the
+  `computeBalance()` stub. **190 tests green, analyze clean.** Release APK
+  built, installed on f28ff436, cold start clean (zero FATAL / Flutter
+  exceptions); home renders ₹1,440.77 via the bank-verified path.
 
 ## 2026-09-04 — Ledger-open hardening (fresh-install + key-loss brick fixed)
 
