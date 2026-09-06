@@ -98,7 +98,10 @@ class ComputeCurrentBalance {
     return ComputedBalance(
       value: balance,
       replayedTransactions: replayed,
-      anchoredOn: anchor.date,
+      // Normalized to the day: transaction-SMS anchors carry a full ISO
+      // timestamp, snapshot anchors don't — the UI ("as of 18 Aug") and
+      // comparisons only care about the day.
+      anchoredOn: _day(anchor.date),
       confidence: BalanceConfidence.bankVerified,
     );
   }

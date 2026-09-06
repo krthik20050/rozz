@@ -112,37 +112,39 @@ class TransactionLocalDatasourceImpl implements TransactionLocalDatasource {
   @override
   Future<ComputedBalance> computeBalance() async {
     // Both anchor sources and the ledger are read in one go; the engine
-    // picks the newest anchor and replays forward from it.
-    final results = await Future.wait([
-      _databaseHelper.query((db) async {
-        return await db.query(
-          'transactions',
-          columns: ['date', 'amount', 'direction'],
-          orderBy: 'date ASC',
-        );
-      }),
-      _databaseHelper.query((db) async {
-        return await db.query(
-          'transactions',
-          columns: ['date', 'balance_after'],
-          where: 'balance_after IS NOT NULL',
-          orderBy: 'date DESC',
-          limit: 1,
-        );
-      }),
-      _databaseHelper.query((db) async {
-        return await db.query(
-          'mab_history',
-          columns: ['date', 'end_of_day_balance'],
-          orderBy: 'date DESC',
-          limit: 1,
-        );
-      }),
-    ]);
-    final txRows = results[0];
+    // picks the newest anchor and replays forward from it. Each query result
+    // is explicitly typed — DatabaseHelper.query returns Future<dynamic>,
+    // and List<dynamic> is not assignable to the engine's List<Transaction>.
+    final List<Map<String, dynamic>> txRows =
+        await _databaseHelper.query((db) async {
+      return await db.query(
+        'transactions',
+        columns: ['date', 'amount', 'direction'],
+        orderBy: 'date ASC',
+      );
+    });
+    final List<Map<String, dynamic>> anchorTxRows =
+        await _databaseHelper.query((db) async {
+      return await db.query(
+        'transactions',
+        columns: ['date', 'balance_after'],
+        where: 'balance_after IS NOT NULL',
+        orderBy: 'date DESC',
+        limit: 1,
+      );
+    });
+    final List<Map<String, dynamic>> snapshotRows =
+        await _databaseHelper.query((db) async {
+      return await db.query(
+        'mab_history',
+        columns: ['date', 'end_of_day_balance'],
+        orderBy: 'date DESC',
+        limit: 1,
+      );
+    });
     final anchorRows = [
-      ...results[1],
-      ...results[2],
+      ...anchorTxRows,
+      ...snapshotRows,
     ];
 
     final anchors = anchorRows

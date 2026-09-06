@@ -167,7 +167,11 @@ setUp(() async {
     expect(result.anchoredOn, '2026-08-18');
   });
 
-  test('getLastKnownBalance: snapshot alone is returned when no balance_after exists', () async {
+  test('getLastKnownBalance: snapshot anchors and later SMS replay the balance forward', () async {
+    // The daily balance-advice snapshot (₹100 on the 14th) is the anchor; the
+    // debit SMS on the 15th moves the number to ₹50. The old code returned
+    // the stale ₹100 forever — balance updates only ever came from SMS that
+    // happened to carry "Avl bal".
     final db = await databaseHelper.database;
     await db.insert('mab_history', {
       'date': '2026-08-14',
@@ -182,7 +186,7 @@ setUp(() async {
       labelType: 'upi_debit',
       source: 'sms',
     ));
-    expect(await datasource.getLastKnownBalance(), 100.0);
+    expect(await datasource.getLastKnownBalance(), 50.0);
   });
 
   test('getTransactionsByMonth: range predicate returns only that month', () async {
