@@ -289,3 +289,7 @@
   transfer, and actual iPhone validation remain pending. No iOS-ready claim.
 - Setup/status details: rozz_app/docs/windows-ios-development.md.
 
+
+## 2026-10-09: preview handoff and design exploration
+
+Documented exact Windows preview launch/reuse/hot-reload steps in root AGENTS.md; saved requested future-chat memory extension note. Added docs/design-theme-study.md with official Copilot/Monzo/Fold reference findings, current purple/glass audit, three dark theme directions and prioritized functional UX improvements. Theme concepts only; app UI unchanged. Previous verification remains 199 passing tests and clean analyze; documentation-only changes did not require rerunning app tests.
