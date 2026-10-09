@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'package:rozz/core/development/desktop_preview.dart';
+import 'package:rozz/core/development/desktop_preview_frame.dart';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
@@ -115,11 +117,13 @@ Future<void> _bootstrapApp() async {
   // never blocked on disk IO / migrations.
   final dbHelper = DatabaseHelper();
 
-  final secureStorage = SecureStorageService();
+  final secureStorage = desktopPreviewEnabled
+      ? PreviewSecureStorage()
+      : SecureStorageService();
   // One-time dev bootstrap: if no API key is stored yet, import it from a
   // file dropped into the app's files dir (adb push). The file is deleted
   // after import and never ships in source — the key lives only on the device.
-  unawaited(_importDevApiKey(secureStorage));
+  if (!desktopPreviewEnabled) unawaited(_importDevApiKey(secureStorage));
   final aiService = AiService(secureStorage);
   final smsParser = SmsParser();
   final txnLocalDS = TransactionLocalDatasourceImpl(dbHelper);
@@ -147,39 +151,42 @@ Future<void> _bootstrapApp() async {
   // Background EOD Task Scheduling (Android WorkManager). Never block startup
   // on background plumbing.
   if (!kIsWeb && Platform.isAndroid) {
-    unawaited(WorkmanagerService.initialize().catchError((Object e) {
-      debugPrint('WorkManager init failed: $e');
-    }));
+    unawaited(
+      WorkmanagerService.initialize().catchError((Object e) {
+        debugPrint('WorkManager init failed: $e');
+      }),
+    );
   }
 
   runApp(
     MultiBlocProvider(
       providers: [
         BlocProvider<TransactionBloc>(
-          create: (context) => TransactionBloc(txnRepo, aiService)..add(LoadTransactions()),
+          create: (context) =>
+              TransactionBloc(txnRepo, aiService)..add(LoadTransactions()),
         ),
         BlocProvider<MabBloc>(
-          create: (context) => MabBloc(
-            mabRepo,
-            CalculateMab(),
-            txnRepo,
-            secureStorage,
-          )..add(LoadMabStatus(
-            month: DateTime.now().month,
-            year: DateTime.now().year,
-            now: DateTime.now(),
-          )),
+          create: (context) =>
+              MabBloc(mabRepo, CalculateMab(), txnRepo, secureStorage)..add(
+                LoadMabStatus(
+                  month: DateTime.now().month,
+                  year: DateTime.now().year,
+                  now: DateTime.now(),
+                ),
+              ),
         ),
         BlocProvider<InsightsBloc>(
           create: (context) => InsightsBloc(
             txnRepo,
-            SenderLabelRepositoryImpl(
-              SenderLabelLocalDatasourceImpl(dbHelper),
-            ),
+            SenderLabelRepositoryImpl(SenderLabelLocalDatasourceImpl(dbHelper)),
             DismissedSubscriptionRepositoryImpl(
               DismissedSubscriptionLocalDatasourceImpl(dbHelper),
             ),
-            ContactResolver(),
+            ContactResolver(
+              fetch: desktopPreviewEnabled
+                  ? () => Future.value(const <PhoneContact>[])
+                  : null,
+            ),
             ComputeMonthlySummary(),
             ComputeSubscriptions(),
             ComputeUpcomingCharges(),
@@ -188,10 +195,8 @@ Future<void> _bootstrapApp() async {
           )..add(LoadInsights(now: DateTime.now())),
         ),
         BlocProvider<MonthlyReviewBloc>(
-          create: (context) => MonthlyReviewBloc(
-            txnRepo,
-            ComputeMonthlySummary(),
-          ),
+          create: (context) =>
+              MonthlyReviewBloc(txnRepo, ComputeMonthlySummary()),
         ),
         BlocProvider<MerchantBloc>(
           create: (context) => MerchantBloc(merchantRepo)..add(LoadMerchants()),
@@ -229,6 +234,7 @@ class RozzApp extends StatefulWidget {
 
 class _RozzAppState extends State<RozzApp> with WidgetsBindingObserver {
   static const _onboardingDoneKey = 'onboarding_complete';
+  final _previewNavigatorKey = GlobalKey<NavigatorState>();
 
   bool _isSyncing = false;
   double _syncProgress = 0.0;
@@ -307,10 +313,12 @@ class _RozzAppState extends State<RozzApp> with WidgetsBindingObserver {
   }
 
   Future<void> _autoStartWorkflow() async {
-    if (kIsWeb || !Platform.isAndroid) {
+    if (desktopPreviewEnabled) {
       await _loadMockData();
       return;
     }
+
+    if (kIsWeb || !Platform.isAndroid) return;
 
     var status = await Permission.sms.status;
     if (!status.isGranted) {
@@ -327,11 +335,13 @@ class _RozzAppState extends State<RozzApp> with WidgetsBindingObserver {
       // reboot/update, so re-check after opening settings AND surface the
       // result on the home page instead of silently running deaf.
       var hasAccess =
-          await _channel.invokeMethod<bool>('isNotificationAccessGranted') ?? false;
+          await _channel.invokeMethod<bool>('isNotificationAccessGranted') ??
+          false;
       if (!hasAccess) {
         await _channel.invokeMethod('openNotificationAccessSettings');
         hasAccess =
-            await _channel.invokeMethod<bool>('isNotificationAccessGranted') ?? false;
+            await _channel.invokeMethod<bool>('isNotificationAccessGranted') ??
+            false;
       }
       if (mounted && !hasAccess) {
         setState(() => _notificationAccess = false);
@@ -362,7 +372,9 @@ class _RozzAppState extends State<RozzApp> with WidgetsBindingObserver {
     if (!mounted) return;
     context.read<TransactionBloc>().add(LoadTransactions());
     final now = DateTime.now();
-    context.read<MabBloc>().add(LoadMabStatus(month: now.month, year: now.year, now: now));
+    context.read<MabBloc>().add(
+      LoadMabStatus(month: now.month, year: now.year, now: now),
+    );
     context.read<InsightsBloc>().add(LoadInsights(now: now));
   }
 
@@ -375,7 +387,7 @@ class _RozzAppState extends State<RozzApp> with WidgetsBindingObserver {
     });
 
     try {
-      final String response = await rootBundle.loadString('assets/mock_sms.json');
+      final String response = jsonEncode(previewMessages(DateTime.now()));
       final List<dynamic> messages = jsonDecode(response);
       final total = messages.length;
 
@@ -405,7 +417,7 @@ class _RozzAppState extends State<RozzApp> with WidgetsBindingObserver {
           _syncProgress = 0.95;
         });
       }
-      await Future.delayed(const Duration(seconds: 1));
+      _refreshAllBlocs();
     } catch (e) {
       debugPrint('Mock Data Error: $e');
     } finally {
@@ -420,6 +432,11 @@ class _RozzAppState extends State<RozzApp> with WidgetsBindingObserver {
 
   Future<void> syncInbox() async {
     if (_isSyncing) return;
+    if (desktopPreviewEnabled) {
+      _refreshAllBlocs();
+      return;
+    }
+    if (kIsWeb || !Platform.isAndroid) return;
 
     if (mounted) {
       setState(() {
@@ -436,7 +453,8 @@ class _RozzAppState extends State<RozzApp> with WidgetsBindingObserver {
 
       if (mounted) {
         setState(() {
-          _syncStatus = "Parsed $drained messages, drained $fromInbox + $pending pending...";
+          _syncStatus =
+              "Parsed $drained messages, drained $fromInbox + $pending pending...";
           _syncProgress = 0.9;
         });
         _refreshAllBlocs();
@@ -461,7 +479,9 @@ class _RozzAppState extends State<RozzApp> with WidgetsBindingObserver {
           if (drained > 0 && mounted) {
             context.read<TransactionBloc>().add(LoadTransactions());
             final now = DateTime.now();
-            context.read<MabBloc>().add(LoadMabStatus(month: now.month, year: now.year, now: now));
+            context.read<MabBloc>().add(
+              LoadMabStatus(month: now.month, year: now.year, now: now),
+            );
             context.read<InsightsBloc>().add(LoadInsights(now: now));
           }
         }
@@ -474,6 +494,15 @@ class _RozzAppState extends State<RozzApp> with WidgetsBindingObserver {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'ROZZ',
+      navigatorKey: desktopPreviewEnabled ? _previewNavigatorKey : null,
+      builder: desktopPreviewEnabled
+          ? (context, child) => DesktopPreviewFrame(
+              navigatorKey: _previewNavigatorKey,
+              syncService: widget.syncService,
+              onImported: _refreshAllBlocs,
+              child: child ?? const SizedBox.shrink(),
+            )
+          : null,
       theme: ThemeData(
         scaffoldBackgroundColor: RozzColors.bg,
         textTheme: RozzTypography.textTheme,
@@ -481,27 +510,29 @@ class _RozzAppState extends State<RozzApp> with WidgetsBindingObserver {
       home: !_flagLoaded
           ? const _SplashPage()
           : _showOnboarding
-              ? OnboardingPage(onDone: _finishOnboarding)
-              : _isSyncing
-                      ? _SyncLoadingPage(status: _syncStatus, progress: _syncProgress)
-                      : MainScaffold(
-                          onSync: syncInbox,
-                          notificationAccess: _notificationAccess,
-                          deviceCompromised: _deviceCompromised,
-                          onEnableNotificationAccess: () async {
-                            await _channel.invokeMethod('openNotificationAccessSettings');
-                            final ok = await _channel
-                                    .invokeMethod<bool>('isNotificationAccessGranted') ??
-                                false;
-                            if (mounted) {
-                              setState(() => _notificationAccess = ok);
-                            }
-                          },
-aiService: widget.aiService,
-                          secureStorage: widget.secureStorage,
-                          syncService: widget.syncService,
-                          transactionRepository: widget.transactionRepository,
-                        ),
+          ? OnboardingPage(onDone: _finishOnboarding)
+          : _isSyncing
+          ? _SyncLoadingPage(status: _syncStatus, progress: _syncProgress)
+          : MainScaffold(
+              onSync: syncInbox,
+              notificationAccess: _notificationAccess,
+              deviceCompromised: _deviceCompromised,
+              onEnableNotificationAccess: () async {
+                await _channel.invokeMethod('openNotificationAccessSettings');
+                final ok =
+                    await _channel.invokeMethod<bool>(
+                      'isNotificationAccessGranted',
+                    ) ??
+                    false;
+                if (mounted) {
+                  setState(() => _notificationAccess = ok);
+                }
+              },
+              aiService: widget.aiService,
+              secureStorage: widget.secureStorage,
+              syncService: widget.syncService,
+              transactionRepository: widget.transactionRepository,
+            ),
     );
   }
 }
@@ -567,7 +598,9 @@ class _SyncLoadingPage extends StatelessWidget {
                   value: progress,
                   minHeight: 6,
                   backgroundColor: RozzColors.s1,
-                  valueColor: const AlwaysStoppedAnimation<Color>(RozzColors.gold),
+                  valueColor: const AlwaysStoppedAnimation<Color>(
+                    RozzColors.gold,
+                  ),
                 ),
               ),
               const SizedBox(height: 24),
@@ -665,39 +698,39 @@ class _MainScaffoldState extends State<MainScaffold> {
         }
       },
       child: PopScope(
-      canPop: _currentIndex == 0,
-      onPopInvokedWithResult: (didPop, result) {
-        if (!didPop) setState(() => _currentIndex = 0);
-      },
-      child: Scaffold(
-        body: Stack(
-          children: [
-            IndexedStack(index: _currentIndex, children: pages),
-            // Security (rooted device) + offline notices slide in at the top,
-            // above all tabs.
-            Positioned(
-              top: 0,
-              left: 0,
-              right: 0,
-              child: Column(
-                children: [
-                  if (widget.deviceCompromised) const SecurityBanner(),
-                  const OfflineBanner(),
-                ],
+        canPop: _currentIndex == 0,
+        onPopInvokedWithResult: (didPop, result) {
+          if (!didPop) setState(() => _currentIndex = 0);
+        },
+        child: Scaffold(
+          body: Stack(
+            children: [
+              IndexedStack(index: _currentIndex, children: pages),
+              // Security (rooted device) + offline notices slide in at the top,
+              // above all tabs.
+              Positioned(
+                top: 0,
+                left: 0,
+                right: 0,
+                child: Column(
+                  children: [
+                    if (widget.deviceCompromised) const SecurityBanner(),
+                    const OfflineBanner(),
+                  ],
+                ),
               ),
+            ],
+          ),
+          // Bar is always visible (chat included): the Scaffold insets the body
+          // above it, so the chat page's own input bar never overlaps.
+          bottomNavigationBar: SafeArea(
+            top: false,
+            child: BottomNavBar(
+              currentIndex: _currentIndex,
+              onTapTab: (index) => setState(() => _currentIndex = index),
             ),
-          ],
-        ),
-        // Bar is always visible (chat included): the Scaffold insets the body
-        // above it, so the chat page's own input bar never overlaps.
-        bottomNavigationBar: SafeArea(
-          top: false,
-          child: BottomNavBar(
-            currentIndex: _currentIndex,
-            onTapTab: (index) => setState(() => _currentIndex = index),
           ),
         ),
-      ),
       ),
     );
   }

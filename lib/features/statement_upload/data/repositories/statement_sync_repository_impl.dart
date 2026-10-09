@@ -1,4 +1,5 @@
 import 'package:rozz/core/database/database_helper.dart';
+import 'package:rozz/features/statement_upload/data/datasources/statement_row_parser.dart';
 import 'package:rozz/core/security/secure_storage_service.dart';
 import 'package:rozz/features/statement_upload/data/datasources/statement_sync_api.dart';
 import 'package:rozz/features/statement_upload/domain/repositories/statement_sync_repository.dart';
@@ -27,10 +28,10 @@ class StatementSyncRepositoryImpl implements StatementSyncRepository {
     required StatementSyncApi api,
     required TransactionLocalDatasource transactions,
     required DatabaseHelper databaseHelper,
-  })  : _secureStorage = secureStorage,
-        _api = api,
-        _transactions = transactions,
-        _databaseHelper = databaseHelper;
+  }) : _secureStorage = secureStorage,
+       _api = api,
+       _transactions = transactions,
+       _databaseHelper = databaseHelper;
 
   @override
   Future<StatementSyncConfig> loadConfig() async {
@@ -43,9 +44,7 @@ class StatementSyncRepositoryImpl implements StatementSyncRepository {
       // Keystore read failure — treat as not configured.
     }
     return StatementSyncConfig(
-      serverUrl: (url == null || url.isEmpty)
-          ? defaultStatementServerUrl
-          : url,
+      serverUrl: (url == null || url.isEmpty) ? defaultStatementServerUrl : url,
       apiKeySet: apiKey != null && apiKey.isNotEmpty,
       lastSync: await _lastSync(),
     );
@@ -91,7 +90,8 @@ class StatementSyncRepositoryImpl implements StatementSyncRepository {
     var duplicates = 0;
     for (final row in rows) {
       final fingerprint = row['fingerprint'] as String?;
-      final alreadySynced = fingerprint != null &&
+      final alreadySynced =
+          fingerprint != null &&
           await _isFingerprintStored(_fingerprintPrefix + fingerprint);
       if (alreadySynced) {
         duplicates++;
@@ -117,11 +117,10 @@ class StatementSyncRepositoryImpl implements StatementSyncRepository {
 
     final now = DateTime.now().toUtc().toIso8601String();
     await _databaseHelper.write((db) async {
-      await db.insert(
-        'app_meta',
-        {'key': lastSyncMetaKey, 'value': now},
-        conflictAlgorithm: ConflictAlgorithm.replace,
-      );
+      await db.insert('app_meta', {
+        'key': lastSyncMetaKey,
+        'value': now,
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
     });
 
     return StatementSyncResult(
@@ -130,6 +129,101 @@ class StatementSyncRepositoryImpl implements StatementSyncRepository {
       duplicates: duplicates,
       lastSync: now,
     );
+  }
+
+  @override
+  Future<StatementImportResult> importStatementText(String text) async {
+    try {
+      final rows = StatementRowParser().parse(text);
+      var inserted = 0;
+      var duplicates = 0;
+      var unparsed = 0;
+      double? lastBalance;
+      String? lastBalanceDate;
+      await _databaseHelper.write((db) async {
+        try {
+          await db.transaction((txn) async {
+            try {
+              for (final row in rows) {
+                if (row.unparsed || row.direction == 'unknown') {
+                  unparsed++;
+                  // Preserve uncertain input for recovery without letting it
+                  // affect the balance engine or spending totals.
+                  final existing = await txn.query(
+                    'raw_inbox',
+                    where: 'sender = ? AND body = ?',
+                    whereArgs: ['statement-import', row.narration],
+                    limit: 1,
+                  );
+                  if (existing.isEmpty) {
+                    await txn.insert('raw_inbox', {
+                      'sender': 'statement-import',
+                      'body': row.narration,
+                      'received_at': DateTime.parse(
+                        row.date,
+                      ).millisecondsSinceEpoch,
+                    });
+                  }
+                  continue;
+                }
+                final tx = TransactionModel(
+                  date: '${row.date}T23:59:59.999',
+                  amount: row.amount,
+                  direction: row.direction,
+                  labelType: row.labelType,
+                  recipientName: row.payee ?? row.vpa,
+                  upiId: row.vpa,
+                  balanceAfter: row.balanceAfter,
+                  source: 'statement',
+                  upiRefNumber: row.ref,
+                  rawSms: row.narration,
+                  userNarration: row.note,
+                );
+                // changes(), unlike last_insert_rowid(), reports IGNORE
+                // conflicts accurately even after an earlier successful insert.
+                await txn.insert(
+                  'transactions',
+                  tx.toMap(),
+                  conflictAlgorithm: ConflictAlgorithm.ignore,
+                );
+                final changes = await txn.rawQuery('SELECT changes() AS count');
+                if ((changes.single['count'] as num).toInt() == 0) {
+                  duplicates++;
+                } else {
+                  inserted++;
+                }
+                if (row.balanceAfter != null &&
+                    (lastBalanceDate == null ||
+                        row.date.compareTo(lastBalanceDate!) >= 0)) {
+                  lastBalance = row.balanceAfter;
+                  lastBalanceDate = row.date;
+                }
+              }
+            } catch (_) {
+              rethrow;
+            } finally {
+              /* transaction owns rollback */
+            }
+          });
+        } catch (_) {
+          rethrow;
+        } finally {
+          /* write queue owns serialization */
+        }
+      });
+      return StatementImportResult(
+        parsed: rows.length,
+        inserted: inserted,
+        duplicates: duplicates,
+        unparsed: unparsed,
+        lastBalance: lastBalance,
+        lastBalanceDate: lastBalanceDate,
+      );
+    } catch (_) {
+      rethrow;
+    } finally {
+      /* database lifetime is owned by DatabaseHelper */
+    }
   }
 
   /// Server row JSON → app TransactionModel. The redacted narration rides in
@@ -196,20 +290,13 @@ class StatementSyncRepositoryImpl implements StatementSyncRepository {
     }
   }
 
-  Future<void> _recordFingerprint(
-    String fingerprint,
-    String uploadId,
-  ) async {
+  Future<void> _recordFingerprint(String fingerprint, String uploadId) async {
     await _databaseHelper.write((db) async {
-      await db.insert(
-        'uploaded_rows',
-        {
-          'fingerprint': fingerprint,
-          'upload_id': uploadId,
-          'action': 'sync',
-        },
-        conflictAlgorithm: ConflictAlgorithm.replace,
-      );
+      await db.insert('uploaded_rows', {
+        'fingerprint': fingerprint,
+        'upload_id': uploadId,
+        'action': 'sync',
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
     });
   }
 }

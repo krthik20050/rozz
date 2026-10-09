@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:rozz/core/development/desktop_preview.dart';
 import 'dart:convert';
 import 'dart:math';
 import 'package:flutter/foundation.dart';
@@ -25,16 +26,18 @@ class DatabaseHelper {
   factory DatabaseHelper() => _instance;
   DatabaseHelper._internal();
 
-  Future<sqlcipher.Database> get database => _databaseFuture ??= _initDatabase().then(
-        (db) {
-          _database = db;
-          return db;
-        },
-      );
+  Future<sqlcipher.Database> get database =>
+      _databaseFuture ??= _initDatabase().then((db) {
+        _database = db;
+        return db;
+      });
 
   Future<sqlcipher.Database> _initDatabase() async {
     // Test / web: use unencrypted in-memory DB (no native SQLCipher support)
-    if (kIsWeb || Platform.environment.containsKey('FLUTTER_TEST')) {
+    if (desktopPreviewEnabled ||
+        kIsWeb ||
+        Platform.environment.containsKey('FLUTTER_TEST')) {
+      ffi.sqfliteFfiInit();
       ffi.databaseFactory = ffi.databaseFactoryFfi;
       return await ffi.openDatabase(
         ffi.inMemoryDatabasePath,
@@ -105,17 +108,19 @@ class DatabaseHelper {
   /// the data was unrecoverable with the current key anyway) and clears WAL
   /// sidecars so the next open starts a clean, freshly-created ledger.
   Future<void> _quarantineBrokenDatabase(String path) async {
-    final ts = DateTime.now()
-        .toUtc()
-        .toIso8601String()
-        .replaceAll(RegExp(r'[:.]'), '-');
+    final ts = DateTime.now().toUtc().toIso8601String().replaceAll(
+      RegExp(r'[:.]'),
+      '-',
+    );
     final backup = '$path.broken-$ts';
     for (final suffix in const ['', '-wal', '-shm', '-journal']) {
       final file = File('$path$suffix');
       if (!await file.exists()) continue;
       await file.rename('$backup$suffix');
     }
-    debugPrint('ROZZ: quarantined unreadable ledger to $backup; starting fresh');
+    debugPrint(
+      'ROZZ: quarantined unreadable ledger to $backup; starting fresh',
+    );
   }
 
   /// Test seam — the SQLCipher plugin is a method channel that does not exist
@@ -123,14 +128,13 @@ class DatabaseHelper {
   /// wrong-key branch can't be simulated — the schema checks still hold).
   @visibleForTesting
   static Future<sqlcipher.Database> Function(String path, {String? password})
-      dbOpenerForTest = defaultDbOpener;
+  dbOpenerForTest = defaultDbOpener;
 
   @visibleForTesting
   static Future<sqlcipher.Database> defaultDbOpener(
     String path, {
     String? password,
-  }) =>
-      sqlcipher.openDatabase(path, password: password);
+  }) => sqlcipher.openDatabase(path, password: password);
 
   Future<sqlcipher.Database> _openWithKey(String path, {String? password}) =>
       dbOpenerForTest(path, password: password);
@@ -217,7 +221,9 @@ class DatabaseHelper {
     return (e.getResultCode() ?? 0) == 26 ||
         msg.contains('not a database') ||
         msg.contains('file is encrypted');
-  }  /// An encrypted DB stamped user_version=0 (from an early buggy export)
+  }
+
+  /// An encrypted DB stamped user_version=0 (from an early buggy export)
   /// makes sqflite fire onCreate against existing tables. Detect and re-stamp
   /// it to 2 — oldVersion=0 would run onCreate; 2 skips the v1 table rebuild
   /// yet still walks every later onUpgrade migration (all IF NOT EXISTS / data
@@ -308,7 +314,11 @@ class DatabaseHelper {
   /// the rebuild is skipped so a 50k-row copy doesn't run on every future bump.
   /// The guard also covers the cold-start case where Kotlin created the DB file
   /// first (no onCreate → onUpgrade(0, newVersion)).
-  Future<void> _onUpgrade(sqlcipher.Database db, int oldVersion, int newVersion) async {
+  Future<void> _onUpgrade(
+    sqlcipher.Database db,
+    int oldVersion,
+    int newVersion,
+  ) async {
     // Self-heal (defense in depth behind the _isHealthyLedger quarantine):
     // installs that carry the schema-less version-2 artifact from the old
     // _repairZeroVersion bug have NO tables at all. Recreate the full current
@@ -332,7 +342,9 @@ class DatabaseHelper {
     }
 
     if (oldVersion < 2) {
-      await db.execute('CREATE TABLE IF NOT EXISTS transactions_new $_transactionsBody');
+      await db.execute(
+        'CREATE TABLE IF NOT EXISTS transactions_new $_transactionsBody',
+      );
       await db.execute('''
         INSERT INTO transactions_new (date, amount, direction, label_type, recipient_name, upi_id, balance_after, source, upi_ref_number, raw_sms, category)
         SELECT date, amount, direction, label_type, recipient_name, upi_id, balance_after, COALESCE(source, 'sms'), upi_ref_number, raw_sms, category FROM transactions
@@ -411,14 +423,17 @@ class DatabaseHelper {
       // balance hero.
       await db.execute(_appMetaDdl);
       final parser = SmsParser();
-      final rows = await db.query('transactions',
-          columns: ['id', 'direction', 'recipient_name', 'raw_sms']);
+      final rows = await db.query(
+        'transactions',
+        columns: ['id', 'direction', 'recipient_name', 'raw_sms'],
+      );
       for (final row in rows) {
         final id = row['id'];
         final rawSms = row['raw_sms'] as String?;
         if (rawSms == null || rawSms.trim().isEmpty) continue;
         final oldName = row['recipient_name'] as String?;
-        final looksBroken = (oldName?.contains('\n') ?? false) ||
+        final looksBroken =
+            (oldName?.contains('\n') ?? false) ||
             (oldName != null && _accountRe.hasMatch(oldName));
         if (looksBroken) {
           final parsed = parser.parse(rawSms);
@@ -436,8 +451,10 @@ class DatabaseHelper {
       // Account suffix from any SMS mentioning "A/c XXXX" (or "A/c XX4321").
       final suffix = await _extractAccountSuffix(db);
       if (suffix != null) {
-        await db.insert('app_meta', {'key': 'account_suffix', 'value': suffix},
-            conflictAlgorithm: sqlcipher.ConflictAlgorithm.replace);
+        await db.insert('app_meta', {
+          'key': 'account_suffix',
+          'value': suffix,
+        }, conflictAlgorithm: sqlcipher.ConflictAlgorithm.replace);
       }
     }
 
@@ -446,8 +463,11 @@ class DatabaseHelper {
       // "papa") left over from before the v5 sender split. With stem-based
       // label matching its generic stem ("bank") now falsely names unrelated
       // VPAs like "919812345678@wahdfcbank".
-      await db.delete('sender_labels',
-          where: 'key LIKE ?', whereArgs: ['hdfc bank a/c%']);
+      await db.delete(
+        'sender_labels',
+        where: 'key LIKE ?',
+        whereArgs: ['hdfc bank a/c%'],
+      );
     }
 
     if (oldVersion < 7) {
@@ -503,7 +523,8 @@ class DatabaseHelper {
       )
   ''';
 
-  static const String _transactionsDdl = 'CREATE TABLE transactions $_transactionsBody';
+  static const String _transactionsDdl =
+      'CREATE TABLE transactions $_transactionsBody';
 
   static const String _mabDdl = '''
       CREATE TABLE IF NOT EXISTS mab_history (
@@ -611,8 +632,11 @@ class DatabaseHelper {
   Future<void> _seedDismissedSubscriptions(sqlcipher.Database db) async {
     final batch = db.batch();
     for (final key in _seededDismissedSubscriptions) {
-      batch.insert('dismissed_subscriptions', {'merchant_key': key},
-          conflictAlgorithm: sqlcipher.ConflictAlgorithm.ignore);
+      batch.insert(
+        'dismissed_subscriptions',
+        {'merchant_key': key},
+        conflictAlgorithm: sqlcipher.ConflictAlgorithm.ignore,
+      );
     }
     await batch.commit(noResult: true);
   }
@@ -621,8 +645,11 @@ class DatabaseHelper {
   Future<String?> accountSuffix() async {
     try {
       final result = await query((db) async {
-        return await db.query('app_meta',
-            where: 'key = ?', whereArgs: ['account_suffix']);
+        return await db.query(
+          'app_meta',
+          where: 'key = ?',
+          whereArgs: ['account_suffix'],
+        );
       });
       if (result.isEmpty) return null;
       return (result.first['value'] as String?)?.trim();
@@ -671,13 +698,17 @@ class DatabaseHelper {
   }
 
   /// For read operations
-  Future<dynamic> query(Future<dynamic> Function(sqlcipher.Database db) operation) async {
+  Future<dynamic> query(
+    Future<dynamic> Function(sqlcipher.Database db) operation,
+  ) async {
     final db = await database;
     return await operation(db);
   }
 
   /// For write operations (queued)
-  Future<dynamic> write(Future<dynamic> Function(sqlcipher.Database db) operation) async {
+  Future<dynamic> write(
+    Future<dynamic> Function(sqlcipher.Database db) operation,
+  ) async {
     return await _writeQueue.add(() async {
       final db = await database;
       return await operation(db);
@@ -685,7 +716,9 @@ class DatabaseHelper {
   }
 
   /// Generic execute
-  Future<dynamic> execute(Future<dynamic> Function(sqlcipher.Database db) operation) async {
+  Future<dynamic> execute(
+    Future<dynamic> Function(sqlcipher.Database db) operation,
+  ) async {
     final db = await database;
     return await operation(db);
   }

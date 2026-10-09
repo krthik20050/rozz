@@ -1,0 +1,32 @@
+name: iOS sideload package
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.41.2'
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test
+      - name: Build native release without signing secrets
+        run: flutter build ios --release --no-codesign
+      - name: Package for local re-signing
+        run: |
+          mkdir -p build/sideload/Payload
+          cp -R build/ios/iphoneos/Runner.app build/sideload/Payload/
+          cd build/sideload
+          zip -qr ROZZ-unsigned.ipa Payload
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rozz-ios-unsigned
+          path: build/sideload/ROZZ-unsigned.ipa
+          retention-days: 3
