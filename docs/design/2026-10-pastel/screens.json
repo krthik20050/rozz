@@ -1,0 +1,152 @@
+[
+  {
+    "id": "01-home-dark",
+    "source": "C:\\Users\\DELL\\.codex\\generated_images\\01a121a5-5e07-7bb3-8c6b-561a9491674d\\exec-eb04c20e-68fb-4b88-84bc-7a68eec5e99a.png",
+    "file": "images/01-home-dark.png",
+    "version": 1
+  },
+  {
+    "id": "02-home-light",
+    "source": "C:\\Users\\DELL\\.codex\\generated_images\\01a121a5-5e07-7bb3-8c6b-561a9491674d\\exec-278310d0-1c0e-4e0b-8773-833081405ec0.png",
+    "file": "images/02-home-light.png",
+    "version": 1
+  },
+  {
+    "id": "03-activity-dark",
+    "source": "C:\\Users\\DELL\\.codex\\generated_images\\01a121a5-5e07-7bb3-8c6b-561a9491674d\\exec-0f85b0af-7e53-4f67-9fb4-807a1115e753.png",
+    "file": "images/03-activity-dark.png",
+    "version": 1
+  },
+  {
+    "id": "04-transaction-detail-dark",
+    "source": "C:\\Users\\DELL\\.codex\\generated_images\\01a121a5-5e07-7bb3-8c6b-561a9491674d\\exec-83263298-4e62-474c-a2c4-6f32e098d269.png",
+    "file": "images/04-transaction-detail-dark.png",
+    "version": 1
+  },
+  {
+    "id": "05-mab-dark",
+    "source": "C:\\Users\\DELL\\.codex\\generated_images\\01a121a5-5e07-7bb3-8c6b-561a9491674d\\exec-0b1ed876-e835-4ac1-842d-7a33c9419c6c.png",
+    "file": "images/05-mab-dark-v3.png",
+    "version": 3
+  },
+  {
+    "id": "06-insights-for-you-dark",
+    "source": "C:\\Users\\DELL\\.codex\\generated_images\\01a121a5-5e07-7bb3-8c6b-561a9491674d\\exec-8c2fc723-83e2-416b-abb3-1b13eacb828b.png",
+    "file": "images/06-insights-for-you-dark.png",
+    "version": 1
+  },
+  {
+    "id": "07-insights-spending-dark",
+    "source": "C:\\Users\\DELL\\.codex\\generated_images\\01a121a5-5e07-7bb3-8c6b-561a9491674d\\exec-6f0e6b9f-179e-4cec-9d58-94450faf251f.png",
+    "file": "images/07-insights-spending-dark.png",
+    "version": 1
+  },
+  {
+    "id": "08-insights-income-dark",
+    "source": "C:\\Users\\DELL\\.codex\\generated_images\\01a121a5-5e07-7bb3-8c6b-561a9491674d\\exec-64e5b6dc-4b33-40e1-9e43-3ef112953278.png",
+    "file": "images/08-insights-income-dark-v2.png",
+    "version": 2
+  },
+  {
+    "id": "09-insights-subscriptions-dark",
+    "source": "C:\\Users\\DELL\\.codex\\generated_images\\01a121a5-5e07-7bb3-8c6b-561a9491674d\\exec-f24c1a7a-6175-49be-8cf7-751bc97ec081.png",
+    "file": "images/09-insights-subscriptions-dark-v2.png",
+    "version": 2
+  },
+  {
+    "id": "10-chat-dark",
+    "source": "C:\\Users\\DELL\\.codex\\generated_images\\01a121a5-5e07-7bb3-8c6b-561a9491674d\\exec-2d67bc02-1d6c-49c7-86f0-3c69b5188aa9.png",
+    "file": "images/10-chat-dark.png",
+    "version": 1
+  },
+  {
+    "id": "11-monthly-review-dark",
+    "source": "C:\\Users\\DELL\\.codex\\generated_images\\01a121a5-5e07-7bb3-8c6b-561a9491674d\\exec-883c54f6-b1d5-4f58-a960-7762126cc482.png",
+    "file": "images/11-monthly-review-dark-v2.png",
+    "version": 2
+  },
+  {
+    "id": "12-settings-dark",
+    "source": "C:\\Users\\DELL\\.codex\\generated_images\\01a121a5-5e07-7bb3-8c6b-561a9491674d\\exec-2ed2db66-b20a-41c6-a6b3-d3962730e58b.png",
+    "file": "images/12-settings-dark-v2.png",
+    "version": 2
+  },
+  {
+    "id": "13-settings-light",
+    "source": "C:\\Users\\DELL\\.codex\\generated_images\\01a121a5-5e07-7bb3-8c6b-561a9491674d\\exec-f01251f5-3875-4e8e-be31-82e5de4d5f3f.png",
+    "file": "images/13-settings-light.png",
+    "version": 1
+  },
+  {
+    "id": "14-statement-sync-dark",
+    "source": "C:\\Users\\DELL\\.codex\\generated_images\\01a121a5-5e07-7bb3-8c6b-561a9491674d\\exec-740d1944-6b05-4e04-b2bf-d76cd515e3b6.png",
+    "file": "images/14-statement-sync-dark.png",
+    "version": 1
+  },
+  {
+    "id": "15-merchant-labels-dark",
+    "source": "C:\\Users\\DELL\\.codex\\generated_images\\01a121a5-5e07-7bb3-8c6b-561a9491674d\\exec-75f1caf4-4d33-4c4d-ac3b-b3cef08fea0c.png",
+    "file": "images/15-merchant-labels-dark.png",
+    "version": 1
+  },
+  {
+    "id": "16-sender-labels-dark",
+    "source": "C:\\Users\\DELL\\.codex\\generated_images\\01a121a5-5e07-7bb3-8c6b-561a9491674d\\exec-306b6e29-4f35-4184-91f8-795fd47cf13b.png",
+    "file": "images/16-sender-labels-dark.png",
+    "version": 1
+  },
+  {
+    "id": "17-onboarding-welcome-dark",
+    "source": "C:\\Users\\DELL\\.codex\\generated_images\\01a121a5-5e07-7bb3-8c6b-561a9491674d\\exec-af9d10bf-f7d4-4b91-8167-315c52f84ad4.png",
+    "file": "images/17-onboarding-welcome-dark.png",
+    "version": 1
+  },
+  {
+    "id": "18-onboarding-privacy-dark",
+    "source": "C:\\Users\\DELL\\.codex\\generated_images\\01a121a5-5e07-7bb3-8c6b-561a9491674d\\exec-22c9675b-a6e2-457e-bffa-8eecc2038034.png",
+    "file": "images/18-onboarding-privacy-dark.png",
+    "version": 1
+  },
+  {
+    "id": "19-onboarding-access-dark",
+    "source": "C:\\Users\\DELL\\.codex\\generated_images\\01a121a5-5e07-7bb3-8c6b-561a9491674d\\exec-d88df4c2-b16c-462a-ba9c-30fe626b3e1c.png",
+    "file": "images/19-onboarding-access-dark.png",
+    "version": 1
+  },
+  {
+    "id": "20-first-sync-empty-dark",
+    "source": "C:\\Users\\DELL\\.codex\\generated_images\\01a121a5-5e07-7bb3-8c6b-561a9491674d\\exec-3624839d-aaee-4e32-9e09-49728fdc6742.png",
+    "file": "images/20-first-sync-empty-dark.png",
+    "version": 1
+  },
+  {
+    "id": "21-error-recovery-dark",
+    "source": "C:\\Users\\DELL\\.codex\\generated_images\\01a121a5-5e07-7bb3-8c6b-561a9491674d\\exec-6f883741-304a-4011-a2c3-d7b0c77ae550.png",
+    "file": "images/21-error-recovery-dark.png",
+    "version": 1
+  },
+  {
+    "id": "22-chat-key-setup-dark",
+    "source": "C:\\Users\\DELL\\.codex\\generated_images\\01a121a5-5e07-7bb3-8c6b-561a9491674d\\exec-027a0079-0f65-4b26-8cfe-1dcf0884b68f.png",
+    "file": "images/22-chat-key-setup-dark.png",
+    "version": 1
+  },
+  {
+    "id": "23-mab-light",
+    "source": "C:\\Users\\DELL\\.codex\\generated_images\\01a121a5-5e07-7bb3-8c6b-561a9491674d\\exec-b2713161-13f7-4084-82ff-4606c8d22e98.png",
+    "file": "images/23-mab-light-v2.png",
+    "version": 2
+  },
+  {
+    "id": "24-activity-light",
+    "source": "C:\\Users\\DELL\\.codex\\generated_images\\01a121a5-5e07-7bb3-8c6b-561a9491674d\\exec-cb7739bc-2d40-4d2a-96e6-aa4d1587a867.png",
+    "file": "images/24-activity-light.png",
+    "version": 1
+  },
+  {
+    "id": "25-goals-concept-dark",
+    "source": "C:\\Users\\DELL\\.codex\\generated_images\\01a121a5-5e07-7bb3-8c6b-561a9491674d\\exec-0a6a57cc-19e0-4736-ae9b-c4c2614c2877.png",
+    "file": "images/25-goals-concept-dark.png",
+    "version": 1
+  }
+]
