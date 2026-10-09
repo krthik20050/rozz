@@ -1,0 +1,158 @@
+{
+  "generator": "Built-in image_gen",
+  "shared_design_prompt": "Generate a high-resolution portrait single-screen ROZZ mobile app design concept. One complete front-on slim graphite Android phone with centered tiny punch-hole camera, equal generous margins, no angled perspective, no cropped device, softly shadowed on warm gray studio background. Screen proportions 390x844. Premium playful editorial finance style based on rounded pastel block panels, giant precise financial numbers, clean spacious transaction lists, compact rounded bottom dock. DARK screen canvas charcoal #141618, neutral surface #232629, text warm ivory #F5F2EA and secondary #B9BDB7. PASTELS mint #C6E7D4 for balance, butter #F2D884 for MAB, lilac #D7CEF2 for insights, blush #F0C7CF for spending. Dark ink #18231D on all pastel panels. Primary action soft lime #D4EFA1. LIGHT variant uses warm cream #F7F4ED background, ivory neutral surfaces, dark ink text; same pastel roles. No gradients, no glassmorphism, no gold banking aesthetic, no excessive nested cards, no glossy 3d coins, no random marketing imagery. Typography: Syne-like bold expressive short headings, DM Sans-like clear body at least 14px, large clean tabular numbers with rupee ₹ glyph. 24px side padding, 8pt rhythm, 28px main panel radius, 16px controls, 48px minimum tap targets, obvious accessible text contrast. Rounded custom consistent 2px stroke icon family. Status bar 9:41. For main app tabs use exactly five bottom destinations in order Home, Activity, Rozz, Insights, MAB, with visible labels and soft lime active item. Detail/settings/onboarding screens have a back arrow and no tab dock unless specified. Never show send money, transfer, deposits, card issuance, credit scores or bank login since ROZZ is an SMS-based personal finance tracker. No real personal information, only clearly synthetic sample numbers and merchant names. Do not add extra outside captions or design labels. Deliver a readable carefully typeset plausible app UI, not a moodboard. ",
+  "reference": "01-home-dark.png used for the visual system of subsequent screens",
+  "screen_directions": [
+    {
+      "id": "01-home-dark",
+      "direction": "Home dark: verified balance ₹24,850, MAB ₹12,460 / threshold ₹10,000, Metro Mart/Green Bowl/Sample salary activity, Home selected.",
+      "correction": null,
+      "file": "images/01-home-dark.png"
+    },
+    {
+      "id": "02-home-light",
+      "direction": "Same Home composition with cream canvas, dark ink and same pastel roles.",
+      "correction": null,
+      "file": "images/02-home-light.png"
+    },
+    {
+      "id": "03-activity-dark",
+      "direction": "October 2026 Activity: ₹18,420 spending / ₹45,000 income; All/Money in/Money out; grouped Green Bowl/Metro Mart/Sample salary/City Ride/Blue Stream rows.",
+      "correction": null,
+      "file": "images/03-activity-dark.png"
+    },
+    {
+      "id": "04-transaction-detail-dark",
+      "direction": "Green Bowl debit ₹280, fictional date 9 October 2026 12:40, category Food, SMS source, fictional account suffix4321, balance after24850, narration and original SMS disclosure.",
+      "correction": null,
+      "file": "images/04-transaction-detail-dark.png"
+    },
+    {
+      "id": "05-mab-dark",
+      "direction": "MAB DARK main tab. Title 'Monthly average balance', month October 2026. Wide butter panel 'On track', huge '₹12,460', 'Required average ₹10,000'. Below white-readable on charcoal line chart labelled 'Recorded daily balances', x ticks 1 Oct, 5 Oct, 9 Oct; y ticks ₹0, ₹10k, ₹20k, dashed labelled threshold ₹10,000. Show only first nine observed days, future 10-31 empty/unplotted. Below one compact strip 'Recorded days 9 of 9' 'Days left 22'. Quiet text 'Based on recorded bank balances. Missing days can change the estimate.' Bottom MAB selected. Do not claim penalty-free guaranteed, no fictional advice numbers.",
+      "correction": "Keep the entire phone, typography, colors and page design. Correct ONLY the Recorded daily balances chart. There must be exactly 9 daily points for 1 through 9 October, ALL clearly ABOVE the dashed ₹10,000 threshold. Values for plotting 11800,12100,11600,12500,12900,12100,12400,13200,13540. Their recorded-day average is ₹12,460. Keep labelled y-axis ₹0, ₹10k, ₹20k, x 1 Oct 5 Oct 9 Oct. No balance point below ₹10,000. Preserve rest. Under top number label add 'Recorded-day average'; implementation will distinguish month estimate. No plot after 9 Oct.",
+      "file": "images/05-mab-dark-v3.png"
+    },
+    {
+      "id": "06-insights-for-you-dark",
+      "direction": "INSIGHTS FOR YOU DARK main tab. Title Insights, October 2026 month selector. Four horizontally fitting text tabs 'For you' selected, 'Spending', 'Subscriptions', 'Income'; clean underline rather than enormous chips. Lilac wide panel 'Your month, so far', big '₹26,580', 'Income minus spending', tiny row 'In ₹45,000' 'Out ₹18,420'. Below butter narrow insight 'Balance streak' '9 of 9 recorded days above ₹10,000' with nine tiny dots. Section 'Worth a look', two neutral borderless rows 'Food is your biggest category' '₹6,240 this month'; '2 recurring charges found' 'Review subscriptions'. 'Open monthly review' arrow row. Bottom Insights selected.",
+      "correction": null,
+      "file": "images/06-insights-for-you-dark.png"
+    },
+    {
+      "id": "07-insights-spending-dark",
+      "direction": "INSIGHTS SPENDING DARK main tab. Title Insights October 2026 selector. Four tabs For you, Spending selected, Subscriptions, Income with thin underline. Large blush panel 'Total spending' giant ₹18,420 and mini vertical bar chart first nine days Oct, no future plotted. Section 'Where it went', horizontal category breakdown rows, each labelled number and meaningful colored proportional rail: Food ₹6,240 (34%), Shopping ₹5,100 (28%), Transport ₹2,480 (13%), Bills ₹3,700 (20%), Other ₹900 (5%). Values sum to ₹18,420; percent labels optional rounding. Category colors blush butter mint lilac neutral. Roomy list no nested chart frame. Bottom Insights selected.",
+      "correction": null,
+      "file": "images/07-insights-spending-dark.png"
+    },
+    {
+      "id": "08-insights-income-dark",
+      "direction": "INSIGHTS INCOME DARK main tab. Title Insights October 2026 selector. Four tabs For you, Spending, Subscriptions, Income selected. Mint panel 'Money in' huge ₹45,000, small '1 source this month'. Section 'Income sources', single roomy list item circle S 'Sample salary' '₹45,000 · 8 October'. Section 'Recurring income' neutral row 'Sample salary' 'Detected across 3 months' small labelled timeline Aug ₹45,000 Sep ₹45,000 Oct ₹45,000. Button row 'Manage sender labels' arrow. Small 'Based on your recorded transactions'. No fabricated portfolio/investment income. Bottom Insights selected.",
+      "correction": "Keep screen content and design. Make the Insights local tabs MATCH plain text tabs of the For you and Spending screen: exactly For you, Spending, Subscriptions, Income, plain text on charcoal with NO pill backgrounds. Income selected is bold ivory with thin soft lime underline; other three muted gray. Keep all four equal readable words in one horizontal row. No pills in local Insights tab row. Keep bottom dock and income panels.",
+      "file": "images/08-insights-income-dark-v2.png"
+    },
+    {
+      "id": "09-insights-subscriptions-dark",
+      "direction": "INSIGHTS SUBSCRIPTIONS DARK main tab. Title Insights October 2026 month selector. Four tabs For you Spending Subscriptions selected Income. Butter compact panel 'Monthly recurring charges' huge ₹498 with '2 detected subscriptions'. Section 'Your subscriptions' list Blue Stream ₹299 / month 'Next expected 7 November' with visible dismiss x; Cloud Notes ₹199 / month 'Next expected 12 October' with dismiss x. Small explainer 'Found from similar charges across multiple months. Dismiss anything that is not a subscription.' Section Upcoming single neutral row Cloud Notes ₹199 'In 3 days'. Bottom Insights selected. No subscription add/payment controls.",
+      "correction": "Keep screen content and design. Change the local Insights tab row to plain text tabs on charcoal with no filled pills: For you, Spending, Subscriptions, Income in exactly this order. Subscriptions selected bold ivory text with thin soft lime underline, others muted gray. One horizontal row, comfortably readable, no pill background. Keep all other content including dismissal x and amounts.",
+      "file": "images/09-insights-subscriptions-dark-v2.png"
+    },
+    {
+      "id": "10-chat-dark",
+      "direction": "ROZZ CHAT DARK main tab, top heading 'Ask Rozz' and simple round sparkle mark, small 'Answers from your recorded finances'. Conversation: user right soft lime bubble 'Where did my money go this month?'; assistant direct neutral response with short first sentence 'You spent ₹18,420 in October.'; pastel lilac summary with three labelled rows 'Food ₹6,240', 'Shopping ₹5,100', 'Transport ₹2,480'; readable remaining response 'Food was your biggest category. Want to see the full breakdown?' subtle 'Based on 9 recorded days'. Bottom anchored input 'Ask about your money…' rounded send arrow button, above bottom tab dock Rozz selected. No decorative avatars, no investment forecasts, no too-small chat copy.",
+      "correction": null,
+      "file": "images/10-chat-dark.png"
+    },
+    {
+      "id": "11-monthly-review-dark",
+      "direction": "MONTHLY REVIEW DARK drill-down. Back arrow title 'Monthly review' share icon. Month 'October 2026', big expressive title 'Your month in money.' Paired flat pastel panels mint 'Money in ₹45,000' blush 'Money out ₹18,420' on a single row. Lilac full-width panel 'Income minus spending' huge '₹26,580', small 'So far this month'. Two editorial direct findings below 'Food led your spending' '₹6,240 across recorded transactions.' then 'Your balance stayed above the threshold' '9 of 9 recorded days.' Bottom small 'Review updates as more transactions arrive.' No nav dock. Share action is existing monthly report scope.",
+      "correction": "Keep entire design and text except remove the small 'Across 3 transactions' text from Money in panel, and remove 'Across 22 transactions' text from Money out panel. Keep main amounts ₹45,000 and ₹18,420. Leave clean breathing room in panels. All other content unchanged. Do not invent transaction counts.",
+      "file": "images/11-monthly-review-dark-v2.png"
+    },
+    {
+      "id": "12-settings-dark",
+      "direction": "SETTINGS DARK drill-down. Back arrow and title 'Settings'. First grouped section 'Appearance', clear wide segmented control two modes 'Dark' selected soft lime, 'Light' neutral, below 'Choose the look that feels right.' Section 'Capture & sync', roomy neutral list 'Bank SMS access' 'Enabled' chevron, 'Statement sync' 'Configure' chevron. Section 'AI assistant' row 'API key' 'Saved securely' chevron, no keys displayed. Section 'Personalize' rows 'Merchant labels' chevron, 'Sender labels' chevron. Section 'Privacy' row 'App lock' 'Uses device security'; small footer 'Your ledger stays on this device.' No fictitious export subscription billing controls. No nav dock.",
+      "correction": "Keep all screen content, graphite phone and dark theme. Correct the Appearance selector to exactly two side-by-side choices: crescent MOON icon followed by 'Dark' on LEFT, SUN rays icon followed by 'Light' on RIGHT. Dark selected is soft lime #D4EFA1 fill with dark ink icon/text; Light neutral charcoal fill with ivory icon/text. Appearance section surrounding background neutral charcoal like other groups, not a large mint panel. Same title hierarchy as warm-light counterpart and keep all rows.",
+      "file": "images/12-settings-dark-v2.png"
+    },
+    {
+      "id": "13-settings-light",
+      "direction": "SETTINGS WARM LIGHT drill-down. Exact same layout and content as dark settings: back arrow title Settings, Appearance section with segmented Dark / Light (Light selected soft lime), explanatory Choose the look that feels right. Capture & sync list Bank SMS access Enabled, Statement sync Configure; AI assistant API key Saved securely; Personalize Merchant labels and Sender labels; Privacy App lock Uses device security; footer Your ledger stays on this device. Cream background, stone grouping, deep ink type, neutral controls. Same device and font language no dock.",
+      "correction": null,
+      "file": "images/13-settings-light.png"
+    },
+    {
+      "id": "14-statement-sync-dark",
+      "direction": "STATEMENT SYNC DARK drill-down. Back arrow title Statement sync. Small mint connection panel linked document glyph 'Bring your statements together.' body 'Connect your statement server to import missing transactions.' Two clean labelled outlined fields 'Server URL' with placeholder 'https://your-server.example', 'Sync API key' with masked bullets eye icon, no actual secret. Adjacent secondary 'Save connection' and primary soft lime 'Sync now' (large reachable action). Below section 'Last sync', neutral plain status 'Connected' small green dot; '9 October, 09:38'; '24 new transactions imported'; 'Duplicates skipped automatically'. Bottom small trust copy 'Sync imports records into your local ledger.' No WhatsApp login flow or payment controls, no nav dock.",
+      "correction": null,
+      "file": "images/14-statement-sync-dark.png"
+    },
+    {
+      "id": "15-merchant-labels-dark",
+      "direction": "MERCHANT LABELS DARK drill-down. Back arrow title Merchant labels, small subtitle 'Make your activity easier to recognize.' Search field 'Find a merchant'. Three spacious direct rows circle M 'Metro Mart' 'Shopping' pencil; G Green Bowl Food pencil; C City Ride Transport pencil. Show inline edit expansion below Green Bowl (not modal): labelled text field 'Merchant name' Green Bowl; labelled 'Narration' 'Lunch'; bottom Cancel text and Save changes soft lime small wide button. Small 'Your labels take priority when displayed.' Neutral rows, one small lilac heading accent, no real UPI or account reference, no nav dock.",
+      "correction": null,
+      "file": "images/15-merchant-labels-dark.png"
+    },
+    {
+      "id": "16-sender-labels-dark",
+      "direction": "SENDER LABELS DARK drill-down. Back arrow title Sender labels; subtitle 'Give incoming payments familiar names.' Search 'Find a sender'. Two direct simple rows 'Sample salary' '3 recurring payments' circle S and pencil; 'Aarav' '2 incoming payments' circle A and pencil. One inline editable field 'Display label' 'Salary' and buttons Cancel and Save label. Small neutral text 'Labels change how names appear in your income view.' Mint introductory narrow panel 'Recognize money coming in' with small inward arrow. No real UPI phone or bank reference, no people photographs, no nav dock.",
+      "correction": null,
+      "file": "images/16-sender-labels-dark.png"
+    },
+    {
+      "id": "17-onboarding-welcome-dark",
+      "direction": "ONBOARDING WELCOME DARK standalone intro with no nav dock. ROZZ small wordmark at top. Huge clean two-line heading 'Know your money.' supporting one sentence 'Bank SMS, clear activity, and a calmer monthly balance.' Central purposeful playful overlapping pastel paper-like ledger slips: mint sample balance ₹24,850, butter small MAB status On track, lilac tiny transaction glyph, tasteful slight rotation only in illustration. No 3D coins. Below two small trust bullets 'Built around your bank SMS' 'You control your data'. Bottom full-width soft lime button 'Get started', small '1 of 3' below. Keep illustration decorative and no fake tappable cards.",
+      "correction": null,
+      "file": "images/17-onboarding-welcome-dark.png"
+    },
+    {
+      "id": "18-onboarding-privacy-dark",
+      "direction": "ONBOARDING PRIVACY DARK second intro screen. Top back arrow ROZZ wordmark small, small '2 of 3'. Headline 'Private by design.' Center oversized soft lilac single panel with crisp dark device-and-lock diagram, no photorealistic lock. Three readable short icon rows below 'Your ledger is stored on your phone'; 'AI requests use redacted financial context'; 'Your API key is stored securely'. Important do not say nothing ever leaves phone because AI and sync exist. Bottom soft lime full-width Continue and secondary text Skip for now only if permission not yet requested. Same mature playful typography and generous margins, no dock.",
+      "correction": null,
+      "file": "images/18-onboarding-privacy-dark.png"
+    },
+    {
+      "id": "19-onboarding-access-dark",
+      "direction": "ONBOARDING BANK SMS ACCESS DARK third intro screen. Back arrow header 'Connect bank SMS', small '3 of 3'. Main mint panel with outlined SMS notification illustration and heading 'Let ROZZ read bank alerts.' Short body 'Enable notification access to capture bank transactions as they arrive.' Neutral short feature checklist 'Capture incoming bank alerts'; 'Optional inbox access imports earlier SMS'. Full-width primary soft lime 'Enable notification access', secondary outlined 'Allow inbox import', text 'Set up later'. Small 'Android will ask for access on the next screen.' Do not draw fake OS permission dialog. No nav dock.",
+      "correction": null,
+      "file": "images/19-onboarding-access-dark.png"
+    },
+    {
+      "id": "20-first-sync-empty-dark",
+      "direction": "HOME FIRST SYNC / UNKNOWN BALANCE DARK main tab. Header ROZZ and settings round icon. Title 'A fresh start.' Mint balance panel label Available balance, value large 'Not verified yet', small 'Waiting for a bank SMS with a balance.' DO NOT show ₹0 or any made-up balance. Under panel, calm empty area simple inbox glyph and text 'Your first transaction starts here.' body 'Enable bank SMS access or sync earlier messages.' Two buttons 'Enable SMS access' soft lime and 'Sync messages' neutral outlined. Bottom same five tab dock Home selected. Friendly explanatory empty state, spacious not data chart.",
+      "correction": null,
+      "file": "images/20-first-sync-empty-dark.png"
+    },
+    {
+      "id": "21-error-recovery-dark",
+      "direction": "HOME ERROR RECOVERY DARK main tab. ROZZ header round settings icon. Mint compact panel 'Balance unavailable' 'We could not read your ledger.' Neutral spacious central outline folder with subtle lilac mark, heading 'Let’s try that again.' body 'Your saved data is still on this device. Retry loading your activity.' Full width primary soft lime Retry, secondary text Open settings. Bottom five tab Home selected. No red full-screen panic, no amount shown, no fabricated chart, no incorrect guarantee that corrupt data is healthy.",
+      "correction": null,
+      "file": "images/21-error-recovery-dark.png"
+    },
+    {
+      "id": "22-chat-key-setup-dark",
+      "direction": "ROZZ CHAT API KEY SETUP DARK main tab. Header Ask Rozz, small local sparkle mark. Large clear heading 'Make room for better answers.' Smaller 'Connect an AI key to ask questions about your recorded finances.' Lilac compact privacy panel lock icon 'Personal details are redacted before an AI request.' Label AI API key, neutral outlined field placeholder 'Paste your key' with eye icon. Small helper 'Groq, OpenRouter or Gemini'. Large primary soft lime 'Save key securely'. Secondary text 'Manage in Settings'. Bottom tab dock Rozz selected. No real key strings, no sign up subscription cards, no claim offline AI.",
+      "correction": null,
+      "file": "images/22-chat-key-setup-dark.png"
+    },
+    {
+      "id": "23-mab-light",
+      "direction": "MAB WARM LIGHT counterpart main tab. Cream canvas dark ink, title Monthly average balance, month October 2026. Butter wide panel On track ₹12,460, Required average ₹10,000. Clean line chart Recorded daily balances first nine days only with dashed ₹10,000 threshold, clear x labels 1 Oct 5 Oct 9 Oct; y ₹0 ₹10k ₹20k. Neutral single stat strip Recorded days 9 of 9, Days left 22. Note Based on recorded bank balances. Missing days can change the estimate. Bottom same tab dock MAB selected lime. Same roles and composition as dark MAB, no dark large chart panel.",
+      "correction": "Keep entire light screen design and phone. Correct ONLY chart: exactly 9 daily points for Oct1-9 with values 11800,12100,11600,12500,12900,12100,12400,13200,13540; ALL above dashed ₹10,000 line, ranging near ₹12k-₹14k. Recorded-day average ₹12,460. Keep y ₹0 ₹10k ₹20k and clear x1 Oct5 Oct9 Oct, no future points. Remove meaningless progress bar inside top On track panel. Add caption 'Recorded-day average' under number. Retain footer note and tab dock.",
+      "file": "images/23-mab-light-v2.png"
+    },
+    {
+      "id": "24-activity-light",
+      "direction": "ACTIVITY WARM LIGHT counterpart. Cream canvas dark ink, title Activity, search/filter round controls, October 2026 month selector. Blush summary Spent this month ₹18,420, Income ₹45,000. Segmented All selected lime, Money in, Money out. Direct neutral transaction rows Today Green Bowl Food 12:40 -₹280.00 and Metro Mart Shopping 10:15 -₹640.00; Yesterday Sample salary Income +₹45,000.00 and City Ride Transport -₹180.00; 7 October Blue Stream Subscription -₹299.00. Pastel initials circles. Bottom Activity selected. Readable quiet list and identical structure to dark counterpart.",
+      "correction": null,
+      "file": "images/24-activity-light.png"
+    },
+    {
+      "id": "25-goals-concept-dark",
+      "direction": "SAVINGS GOALS DARK OPTIONAL FUTURE CONCEPT clearly marked small 'Concept preview' under title Goals. Back arrow no nav dock. Title 'A little closer.' Two pastel goal panels, mint 'Emergency fund' '₹12,000 of ₹30,000' clear 40% progress rail and small 'Illustrative goal'; butter 'A weekend away' '₹4,000 of ₹10,000' 40% rail. Footer neutral banner 'Goal tracking is a future feature. These are sample goals.' No create/save/payment actions pretending working persistence, no fake bank transfer. This image is design of existing static Goals page, not shipped functional savings product.",
+      "correction": null,
+      "file": "images/25-goals-concept-dark.png"
+    }
+  ],
+  "note": "Shared prompt and screen directions are retained for review; first four directions are condensed descriptions of the initial prompts. Later initial directions and refinement directions are recorded. No real user data."
+}
