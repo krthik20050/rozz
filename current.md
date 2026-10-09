@@ -1,6 +1,15 @@
 # ROZZ — Project Progress
 
-> Keep this file current. Updated last: 2026-09-06 (running-balance engine).
+## 2026-10-09: Pastel redesign image concepts (awaiting review)
+
+- User selected image concepts first; Flutter implementation follows image finalization.
+- Generated and visually reviewed 25 standalone screen concepts: all main tabs, four Insights views, details, setup, settings, sync, management and recovery. Four warm-light counterparts cover Home, Activity, MAB and Settings. Remaining light images await direction revisions. Goals is explicitly a future concept.
+- Saved assets and a filterable image gallery in `rozz_app/docs/design/2026-10-pastel/`. User-flow map, GitHub research and generation prompt directions are included. Corrected MAB chart/streak consistency, threshold copy, theme icons and Insights tab treatment.
+- Gallery served locally at http://127.0.0.1:8765/ with 25 successful image responses. Browser automation could not start because the Windows sandbox helper failed; interaction testing of gallery controls remains unverified. Generated images were inspected directly.
+- No Flutter UI code or app packages changed. Widgetbook, Flutter Animate and a consistent icon package are shortlisted for the later implementation phase. No package or skill installation was performed in this image-only phase.
+
+
+> Keep this file current. Updated last: 2026-10-09 (redesign image review).
 > Daily work log lives in `docs/daily-log/`.
 
 ## 2026-09-06 — Running-balance engine ("made-up bank balance" fixed)
