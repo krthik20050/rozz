@@ -73,7 +73,9 @@ class _DesktopPreviewFrameState extends State<DesktopPreviewFrame> {
       if (saved) widget.onImported();
     } catch (_) {
       if (mounted) {
-        setState(() => _status = 'Import failed. Check the development console.');
+        setState(
+          () => _status = 'Import failed. Check the development console.',
+        );
       }
     } finally {
       // Route animations may still use the controller after showDialog returns.
@@ -111,14 +113,16 @@ class _DesktopPreviewFrameState extends State<DesktopPreviewFrame> {
           child: Center(
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 402, maxHeight: 874),
-              child: LayoutBuilder(builder: (context, constraints) => MediaQuery(
-                data: MediaQuery.of(context).copyWith(
-                  size: Size(constraints.maxWidth, constraints.maxHeight),
-                  padding: EdgeInsets.zero,
-                  viewPadding: EdgeInsets.zero,
+              child: LayoutBuilder(
+                builder: (context, constraints) => MediaQuery(
+                  data: MediaQuery.of(context).copyWith(
+                    size: Size(constraints.maxWidth, constraints.maxHeight),
+                    padding: EdgeInsets.zero,
+                    viewPadding: EdgeInsets.zero,
+                  ),
+                  child: widget.child,
                 ),
-                child: widget.child,
-              )),
+              ),
             ),
           ),
         ),
@@ -133,4 +137,3 @@ class _DesktopPreviewFrameState extends State<DesktopPreviewFrame> {
     ),
   );
 }
-

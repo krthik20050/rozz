@@ -8,6 +8,7 @@ import 'package:rozz/features/transactions/presentation/bloc/transaction_bloc.da
 import 'package:rozz/core/services/ai_service.dart';
 
 class MockTransactionRepository extends Mock implements TransactionRepository {}
+
 class MockAiService extends Mock implements AiService {}
 
 class FakeTransaction extends Fake implements Transaction {}
@@ -53,16 +54,24 @@ void main() {
     blocTest<TransactionBloc, TransactionState>(
       'emits [TransactionLoading, TransactionLoaded] when LoadTransactions is added',
       build: () {
-        when(() => mockRepository.getAllTransactions())
-            .thenAnswer((_) async => tTransactions);
-        when(() => mockRepository.computeBalance())
-            .thenAnswer((_) async => tComputedBalance);
+        when(
+          () => mockRepository.getAllTransactions(),
+        ).thenAnswer((_) async => tTransactions);
+        when(
+          () => mockRepository.computeBalance(),
+        ).thenAnswer((_) async => tComputedBalance);
         return transactionBloc;
       },
       act: (bloc) => bloc.add(LoadTransactions()),
       expect: () => [
         TransactionLoading(),
-        TransactionLoaded(tTransactions, 5000.0, bankVerified: true),
+        TransactionLoaded(
+          tTransactions,
+          5000.0,
+          bankVerified: true,
+          anchoredOn: '2026-03-04',
+          replayedTransactions: 3,
+        ),
       ],
       verify: (_) {
         verify(() => mockRepository.getAllTransactions()).called(1);
@@ -73,8 +82,9 @@ void main() {
     blocTest<TransactionBloc, TransactionState>(
       'emits [TransactionLoading, TransactionError] when loading fails',
       build: () {
-        when(() => mockRepository.getAllTransactions())
-            .thenThrow(Exception('Failed to load'));
+        when(
+          () => mockRepository.getAllTransactions(),
+        ).thenThrow(Exception('Failed to load'));
         return transactionBloc;
       },
       act: (bloc) => bloc.add(LoadTransactions()),
@@ -89,18 +99,27 @@ void main() {
     blocTest<TransactionBloc, TransactionState>(
       'calls saveTransaction and reloads transactions',
       build: () {
-        when(() => mockRepository.saveTransaction(any()))
-            .thenAnswer((_) async => {});
-        when(() => mockRepository.getAllTransactions())
-            .thenAnswer((_) async => tTransactions);
-        when(() => mockRepository.computeBalance())
-            .thenAnswer((_) async => tComputedBalance);
+        when(
+          () => mockRepository.saveTransaction(any()),
+        ).thenAnswer((_) async => {});
+        when(
+          () => mockRepository.getAllTransactions(),
+        ).thenAnswer((_) async => tTransactions);
+        when(
+          () => mockRepository.computeBalance(),
+        ).thenAnswer((_) async => tComputedBalance);
         return transactionBloc;
       },
       act: (bloc) => bloc.add(const AddTransaction(tTransaction)),
       expect: () => [
         TransactionLoading(),
-        TransactionLoaded(tTransactions, 5000.0, bankVerified: true),
+        TransactionLoaded(
+          tTransactions,
+          5000.0,
+          bankVerified: true,
+          anchoredOn: '2026-03-04',
+          replayedTransactions: 3,
+        ),
       ],
       verify: (_) {
         verify(() => mockRepository.saveTransaction(any())).called(1);
