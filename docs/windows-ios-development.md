@@ -5,7 +5,7 @@
 From `rozz_app`, run `powershell -File tool/run_preview.ps1`, or choose
 **ROZZ: Windows phone preview** in VS Code with the Dart/Flutter extension.
 Install Visual Studio Build Tools 2022 with C++ desktop tools, CMake and a
-Windows SDK first. `flutter doctor -v` checks these prerequisites.
+Windows SDK and the ATL component first (secure-storage plugin dependency). `flutter doctor -v` checks these prerequisites.
 
 The debug-only `ROZZ_DESKTOP_PREVIEW=true` flag opens the existing screens in
 a phone-sized viewport. It uses an isolated, in-memory SQLite ledger and
@@ -48,3 +48,4 @@ The initial iOS configuration sets the deployment target to 14.0 for the
 installed WorkManager plugin and declares optional contacts access. iOS no
 longer auto-loads mock SMS. This is build preparation, not a claim that every
 feature already works on iPhone. The existing Android capture remains intact.
+

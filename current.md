@@ -266,3 +266,26 @@
 - [ ] App lock / biometric re-enable (stubbed earlier — TODO).
 - [ ] Home → transaction-detail navigation (TODO).
 - [ ] Next.js + Supabase backend — referenced in docs, NOT in this repo.
+## 2026-10-09 — Windows development preview and iOS build preparation
+
+- Added a debug-only Windows preview of the existing ROZZ screens with a
+  phone-sized viewport, ephemeral settings/SQLite ledger, current-month
+  fictional balance inputs, and a Simulate SMS control using the real ingest
+  path. VS Code launcher and `tool/run_preview.ps1` included.
+- Preview does not import build-time AI keys or request desktop contacts.
+  Non-Android production startup no longer seeds mock SMS; Android capture
+  is unchanged.
+- Fixed the existing missing `importStatementText` implementation so the app
+  compiles. Local import is atomic, reports dedupe, preserves uncertain rows
+  outside balance calculations, and retains statement balance anchors.
+- Updated two stale BLoC expectations to check anchor/replay metadata.
+  Validation: 199 app tests pass; flutter analyze clean.
+- Prepared a manual GitHub Actions macOS build producing an unsigned IPA for
+  local sideload signing; not yet pushed or run. iOS deployment target 14.0
+  matches WorkManager; optional contacts usage description added.
+- Repaired Visual Studio Build Tools, Windows SDK, and ATL dependencies.
+  Native Windows debug build and launch succeeded; preview is running.
+- iOS Shortcuts bridge, locked-device capture, signing renewal, existing-ledger
+  transfer, and actual iPhone validation remain pending. No iOS-ready claim.
+- Setup/status details: rozz_app/docs/windows-ios-development.md.
+
